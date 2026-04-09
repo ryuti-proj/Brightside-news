@@ -83,8 +83,7 @@ export function AuthModal({
 
   if (!mounted || !isOpen) return null
 
-  const isPiBrowser =
-    typeof window !== "undefined" && typeof (window as any).Pi !== "undefined"
+  const canAttemptPiLogin = true
 
   const handleSubmit = async () => {
     setError("")
@@ -144,10 +143,16 @@ export function AuthModal({
     setError("")
     setInfo("")
 
-    if (!isPiBrowser) {
-      setInfo("Pi Browser not detected here. Test the real Pi login on your deployed app inside the Pi Browser.")
-      return
-    }
+    Pconst handlePiClick = async () => {
+  setError("")
+  setInfo("")
+
+  try {
+    await reinitialize()
+  } catch (err) {
+    setError("Pi login failed. Please try again.")
+  }
+}
 
     try {
       await reinitialize()
