@@ -4,12 +4,10 @@ import React, {
   createContext,
   useContext,
   useState,
-  useEffect,
   useRef,
   type ReactNode,
 } from "react";
-import { PI_NETWORK_CONFIG, BACKEND_URLS } from "@/lib/system-config";
-import { api, setApiAuthToken } from "@/lib/api";
+import { PI_NETWORK_CONFIG } from "@/lib/system-config";
 
 export type LoginDTO = {
   id: string;
@@ -68,7 +66,7 @@ function parseJsonSafely(value: any): any {
   if (typeof value === "string") {
     try {
       return JSON.parse(value);
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -109,23 +107,18 @@ const loadPiSDK = (): Promise<void> => {
       return;
     }
 
-    const script = document.createElement("script");
     if (!PI_NETWORK_CONFIG.SDK_URL) {
       reject(new Error("SDK URL is not set"));
       return;
     }
+
+    const script = document.createElement("script");
     script.src = PI_NETWORK_CONFIG.SDK_URL;
     script.async = true;
 
-    script.onload = () => {
-      console.log("✅ Pi SDK script loaded successfully");
-      resolve();
-    };
-
-    script.onerror = () => {
-      console.error("❌ Failed to load Pi SDK script");
+    script.onload = () => resolve();
+    script.onerror = () =>
       reject(new Error("Failed to load Pi SDK script"));
-    };
 
     document.head.appendChild(script);
   });
@@ -147,15 +140,11 @@ function requestParentCredentials(): Promise<{
 
     const cleanup = (listener: (event: MessageEvent) => void) => {
       window.removeEventListener("message", listener);
-      if (timeoutId !== null) {
-        clearTimeout(timeoutId);
-      }
+      if (timeoutId !== null) clearTimeout(timeoutId);
     };
 
     const messageListener = (event: MessageEvent) => {
-      if (event.source !== window.parent) {
-        return;
-      }
+      if (event.source !== window.parent) return;
 
       const data = parseJsonSafely(event.data);
       if (!data || data.type !== COMMUNICATION_REQUEST_TYPE || data.id !== requestId) {
@@ -165,7 +154,10 @@ function requestParentCredentials(): Promise<{
       cleanup(messageListener);
 
       const payload =
-        typeof data.payload === "object" && data.payload !== null ? data.payload : {};
+        typeof data.payload === "object" && data.payload !== null
+          ? data.payload
+          : {};
+
       const accessToken =
         typeof payload.accessToken === "string" ? payload.accessToken : null;
       const appId = typeof payload.appId === "string" ? payload.appId : null;
@@ -192,7 +184,7 @@ function requestParentCredentials(): Promise<{
 
 export function PiAuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authMessage, setAuthMessage] = useState("Initializing Pi Network...");
+  const [authMessage, setAuthMessage] = useState("Pi login available");
   const [hasError, setHasError] = useState(false);
   const [piAccessToken, setPiAccessToken] = useState<string | null>(null);
   const [userData, setUserData] = useState<LoginDTO | null>(null);
@@ -207,33 +199,40 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
   ): Promise<void> => {
     setAuthMessage("Logging in...");
 
-    let endpoint: string;
-    let payload: { pi_auth_token: string; app_id?: string };
+    const endpoint = appId ? "/api/pi/login/preview" : "/api/pi/login";
 
-    if (appId) {
-      endpoint = BACKEND_URLS.LOGIN_PREVIEW;
-      payload = { pi_auth_token: accessToken, app_id: appId };
-    } else {
-      endpoint = BACKEND_URLS.LOGIN;
-      payload = { pi_auth_token: accessToken };
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        pi_auth_token: accessToken,
+        app_id: appId,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data?.error || "Login request failed");
     }
-    const loginRes = await api.post<LoginDTO>(endpoint, payload);
 
-    if (accessToken) {
-      setPiAccessToken(accessToken);
-      setApiAuthToken(accessToken);
-    }
-
-    setUserData(loginRes.data);
+    setPiAccessToken(accessToken);
+    setUserData(data);
   };
 
   const getErrorMessage = (error: unknown): string => {
-    if (!(error instanceof Error))
+    if (!(error instanceof Error)) {
       return "An unexpected error occurred. Please try again.";
+    }
 
     const errorMessage = error.message;
 
-    if (errorMessage.includes("SDK failed to load") || errorMessage.includes("load Pi SDK")) {
+    if (
+      errorMessage.includes("SDK failed to load") ||
+      errorMessage.includes("load Pi SDK")
+    ) {
       return "Failed to load Pi Network SDK. Please check your internet connection.";
     }
 
@@ -241,7 +240,7 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
       return "Pi Network authentication failed. Please try again.";
     }
 
-    if (errorMessage.includes("login")) {
+    if (errorMessage.includes("login") || errorMessage.includes("request")) {
       return "Failed to connect to backend server. Please try again later.";
     }
 
@@ -266,9 +265,7 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
   };
 
   const initializePiAndAuthenticate = async () => {
-    if (authInFlightRef.current) {
-      return;
-    }
+    if (authInFlightRef.current) return;
 
     authInFlightRef.current = true;
     setIsLoading(true);
@@ -279,7 +276,10 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
       const parentCredentials = await requestParentCredentials();
 
       if (parentCredentials) {
-        await authenticateAndLogin(parentCredentials.accessToken, parentCredentials.appId);
+        await authenticateAndLogin(
+          parentCredentials.accessToken,
+          parentCredentials.appId
+        );
       } else {
         setAuthMessage("Loading Pi Network SDK...");
 
@@ -309,10 +309,6 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
       authInFlightRef.current = false;
     }
   };
-
-  useEffect(() => {
-    initializePiAndAuthenticate();
-  }, []);
 
   const value: PiAuthContextType = {
     isAuthenticated,
