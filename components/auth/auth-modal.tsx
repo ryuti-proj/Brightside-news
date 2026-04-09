@@ -143,10 +143,6 @@ export function AuthModal({
     setError("")
     setInfo("")
 
-    const handlePiClick = async () => {
-  setError("")
-  setInfo("")
-
   try {
     await reinitialize()
   } catch (err) {
