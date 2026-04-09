@@ -143,7 +143,7 @@ export function AuthModal({
     setError("")
     setInfo("")
 
-    Pconst handlePiClick = async () => {
+    const handlePiClick = async () => {
   setError("")
   setInfo("")
 
