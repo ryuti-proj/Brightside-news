@@ -23,7 +23,13 @@ export function AuthModal({
   initialMode = "login",
 }: AuthModalProps) {
   const { login, register } = useAuth()
-  const { reinitialize, isAuthenticated: isPiAuthenticated, authMessage, hasError, isLoading } = usePiAuth()
+  const {
+    reinitialize,
+    isAuthenticated: isPiAuthenticated,
+    authMessage,
+    hasError,
+    isLoading,
+  } = usePiAuth()
 
   const [mounted, setMounted] = useState(false)
   const [mode, setMode] = useState<"login" | "register">(initialMode)
@@ -64,26 +70,28 @@ export function AuthModal({
   useEffect(() => {
     if (!isOpen) return
 
-    if (!hasError && authMessage && authMessage !== "Pi login successful") {
-      if (
+    if (hasError && authMessage) {
+      setError(authMessage)
+      setInfo("")
+      return
+    }
+
+    if (
+      authMessage &&
+      authMessage !== "Pi login successful" &&
+      (
         authMessage.includes("Loading Pi Network") ||
         authMessage.includes("Initializing Pi Network") ||
         authMessage.includes("Authenticating with Pi Network") ||
         authMessage.includes("Logging in")
-      ) {
-        setInfo(authMessage)
-      }
-    }
-
-    if (hasError && authMessage) {
-      setError(authMessage)
-      setInfo("")
+      )
+    ) {
+      setInfo(authMessage)
+      setError("")
     }
   }, [authMessage, hasError, isOpen])
 
   if (!mounted || !isOpen) return null
-
-  const canAttemptPiLogin = true
 
   const handleSubmit = async () => {
     setError("")
@@ -143,16 +151,9 @@ export function AuthModal({
     setError("")
     setInfo("")
 
-  try {
-    await reinitialize()
-  } catch (err) {
-    setError("Pi login failed. Please try again.")
-  }
-}
-
     try {
       await reinitialize()
-    } catch (err) {
+    } catch {
       setError("Pi login failed. Please try again.")
     }
   }
@@ -190,9 +191,7 @@ export function AuthModal({
                     Continue with Pi
                   </h3>
                   <p className="mt-1 text-sm leading-6 text-violet-800">
-                    {isPiBrowser
-                      ? "Pi Browser detected. Use Pi as your primary BrightSide identity."
-                      : "To use Pi login, open BrightSide News inside Pi Browser."}
+                    Use Pi as your primary BrightSide identity.
                   </p>
 
                   <button
@@ -207,7 +206,7 @@ export function AuthModal({
                       ) : (
                         <Smartphone className="h-4 w-4" />
                       )}
-                      {isLoading ? "Connecting to Pi..." : isPiBrowser ? "Use Pi Login" : "Open in Pi Browser"}
+                      {isLoading ? "Connecting to Pi..." : "Use Pi Login"}
                     </span>
                   </button>
                 </div>
