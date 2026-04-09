@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* -------------------------------
+   GLOBAL RESETS / BASE
+-------------------------------- */
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  overflow-x: hidden;
+  background: #ffffff;
+  color: #111827;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* -------------------------------
+   SCROLLBAR (optional nice touch)
+-------------------------------- */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* -------------------------------
+   MODAL IMPROVEMENTS (GLOBAL)
+-------------------------------- */
+
+/* Prevent background scroll when modal is open (future use) */
+body.modal-open {
+  overflow: hidden;
+}
+
+/* -------------------------------
+   TRANSITIONS (OPTIONAL)
+-------------------------------- */
+
+* {
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
