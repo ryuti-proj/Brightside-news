@@ -1,106 +1,67 @@
-import type { NewsUser, SavedStory, SaveStoryInput } from "@/types/user-data"
+"use client"
 
-type UserPayload = {
-  ok: boolean
-  user: NewsUser | null
-  error?: string
-}
+import type { SavedStory, SaveStoryInput } from "@/types/user-data"
 
-type SavedStoriesPayload = {
-  ok: boolean
-  savedStories: SavedStory[]
-  error?: string
-}
+const BASE_URL = "/api/saved-stories"
 
-type SavedStoryPayload = {
-  ok: boolean
-  savedStory?: SavedStory
-  saved?: boolean
-  removed?: boolean
-  error?: string
-}
-
-function normalizePiUserId(value: unknown): string | null {
-  if (typeof value !== "string") return null
-
-  const trimmed = value.trim()
-
-  if (!trimmed) return null
-
-  if (/^pi-[^\s]+$/i.test(trimmed)) {
-    return trimmed.replace(/^pi-/i, "")
+async function handleResponse(res: Response) {
+  if (!res.ok) {
+    throw new Error("Request failed")
   }
-
-  return trimmed
+  return res.json()
 }
 
-function normalizeStoryValue(value: unknown): string {
-  if (typeof value !== "string") return ""
-
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
-    .replace(/[?#].*$/, "")
-    .replace(/\/$/, "")
-    .replace(/\s+/g, " ")
+export async function fetchSavedStories(piUserId: string): Promise<SavedStory[]> {
+  const res = await fetch(`${BASE_URL}?piUserId=${piUserId}`)
+  return handleResponse(res)
 }
 
-function slugifyStoryValue(value: string): string {
-  return normalizeStoryValue(value)
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
+export async function saveStory(
+  piUserId: string,
+  story: SaveStoryInput
+): Promise<SavedStory> {
+  const res = await fetch(BASE_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      piUserId,
+      story,
+    }),
+  })
+
+  return handleResponse(res)
 }
 
-export function createStoryKey(input: {
-  storyId?: string | null
-  title?: string | null
-  source?: string | null
-  url?: string | null
-  publishedAt?: string | null
-}) {
-  const normalizedUrl = normalizeStoryValue(input.url)
-  const normalizedTitle = normalizeStoryValue(input.title)
-  const normalizedSource = normalizeStoryValue(input.source)
-  const normalizedPublishedAt = normalizeStoryValue(input.publishedAt)
-  const normalizedStoryId = normalizeStoryValue(input.storyId)
+export async function removeSavedStory(
+  piUserId: string,
+  storyId: string
+): Promise<boolean> {
+  const res = await fetch(BASE_URL, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      piUserId,
+      storyId, // 👈 IMPORTANT: send EXACT SAME ID we saved
+    }),
+  })
 
-  if (normalizedUrl) {
-    return `url:${slugifyStoryValue(normalizedUrl)}`
-  }
-
-  if (normalizedTitle && normalizedSource) {
-    const publishedSegment = normalizedPublishedAt ? `:${slugifyStoryValue(normalizedPublishedAt)}` : ""
-    return `meta:${slugifyStoryValue(normalizedSource)}:${slugifyStoryValue(normalizedTitle)}${publishedSegment}`
-  }
-
-  if (normalizedTitle) {
-    return `title:${slugifyStoryValue(normalizedTitle)}`
-  }
-
-  if (normalizedStoryId) {
-    return `id:${slugifyStoryValue(normalizedStoryId)}`
-  }
-
-  return ""
+  return handleResponse(res)
 }
 
-function requirePiUserId(piUserId: string) {
-  const normalizedPiUserId = normalizePiUserId(piUserId)
+export async function checkStorySaved(
+  piUserId: string,
+  storyId: string
+): Promise<boolean> {
+  const res = await fetch(
+    `${BASE_URL}/check?piUserId=${piUserId}&storyId=${encodeURIComponent(storyId)}`
+  )
 
-  if (!normalizedPiUserId) {
-    throw new Error("Missing Pi user ID.")
-  }
-
-  return normalizedPiUserId
-}
-
-function buildAuthHeaders(piUserId: string) {
-  return {
-    "Content-Type": "application/json",
-    "x-pi-user-id": requirePiUserId(piUserId),
-  }
+  const data = await handleResponse(res)
+  return data.saved
 }
 
 export async function syncUserProfile(input: {
@@ -109,104 +70,11 @@ export async function syncUserProfile(input: {
   displayName?: string | null
   avatarUrl?: string | null
 }) {
-  const response = await fetch("/api/user", {
+  await fetch("/api/user", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      ...input,
-      piUserId: requirePiUserId(input.piUserId),
-    }),
+    body: JSON.stringify(input),
   })
-
-  const data = (await response.json()) as UserPayload
-
-  if (!response.ok || !data.ok) {
-    throw new Error(data.error || "Failed to sync user profile.")
-  }
-
-  return data.user
-}
-
-export async function fetchCurrentUser(piUserId: string) {
-  const response = await fetch("/api/user", {
-    method: "GET",
-    headers: buildAuthHeaders(piUserId),
-    cache: "no-store",
-  })
-
-  const data = (await response.json()) as UserPayload
-
-  if (!response.ok || !data.ok) {
-    throw new Error(data.error || "Failed to fetch current user.")
-  }
-
-  return data.user
-}
-
-export async function fetchSavedStories(piUserId: string) {
-  const response = await fetch("/api/saved-stories", {
-    method: "GET",
-    headers: buildAuthHeaders(piUserId),
-    cache: "no-store",
-  })
-
-  const data = (await response.json()) as SavedStoriesPayload
-
-  if (!response.ok || !data.ok) {
-    throw new Error(data.error || "Failed to fetch saved stories.")
-  }
-
-  return data.savedStories
-}
-
-export async function saveStory(piUserId: string, story: SaveStoryInput) {
-  const response = await fetch("/api/saved-stories", {
-    method: "POST",
-    headers: buildAuthHeaders(piUserId),
-    body: JSON.stringify({
-      ...story,
-      storyId: createStoryKey(story),
-    }),
-  })
-
-  const data = (await response.json()) as SavedStoryPayload
-
-  if (!response.ok || !data.ok || !data.savedStory) {
-    throw new Error(data.error || "Failed to save story.")
-  }
-
-  return data.savedStory
-}
-
-export async function checkStorySaved(piUserId: string, storyId: string) {
-  const response = await fetch(`/api/saved-stories/${encodeURIComponent(storyId)}`, {
-    method: "GET",
-    headers: buildAuthHeaders(piUserId),
-    cache: "no-store",
-  })
-
-  const data = (await response.json()) as SavedStoryPayload
-
-  if (!response.ok || !data.ok || typeof data.saved !== "boolean") {
-    throw new Error(data.error || "Failed to check saved story.")
-  }
-
-  return data.saved
-}
-
-export async function removeSavedStory(piUserId: string, storyId: string) {
-  const response = await fetch(`/api/saved-stories/${encodeURIComponent(storyId)}`, {
-    method: "DELETE",
-    headers: buildAuthHeaders(piUserId),
-  })
-
-  const data = (await response.json()) as SavedStoryPayload
-
-  if (!response.ok || !data.ok) {
-    throw new Error(data.error || "Failed to remove saved story.")
-  }
-
-  return Boolean(data.removed)
 }
