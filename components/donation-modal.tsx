@@ -1,112 +1,244 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import {
-  X,
-  Heart,
-  DollarSign,
-  CreditCard,
-  Globe,
-  Mail,
-  ExternalLink,
-  Copy,
-  CheckCircle,
-  Code,
-  Smartphone,
-  Zap,
-} from "lucide-react"
+import { X, Heart, Loader2, CheckCircle2, AlertCircle, Coins, Smartphone, Code, Globe, Zap } from "lucide-react"
+import { useAuth } from "@/contexts/auth-context"
+import { usePiAuth } from "@/contexts/pi-auth-context"
+import { PI_DONATION_MIN, PI_DONATION_PRESETS, formatPiAmount, getDonationImpactMessage } from "@/lib/donation-settings"
+
+interface PiPaymentData {
+  amount: number
+  memo: string
+  metadata: Record<string, unknown>
+}
+
+interface PiPaymentReference {
+  identifier?: string
+}
+
+interface PiPaymentCallbacks {
+  onReadyForServerApproval: (paymentId: string) => void | Promise<void>
+  onReadyForServerCompletion: (paymentId: string, txid: string) => void | Promise<void>
+  onCancel: (paymentId: string) => void | Promise<void>
+  onError: (error: unknown, payment?: PiPaymentReference) => void | Promise<void>
+}
+
+interface PiWithPayments {
+  createPayment: (paymentData: PiPaymentData, callbacks: PiPaymentCallbacks) => Promise<void>
+}
 
 interface DonationModalProps {
   isOpen: boolean
   onClose: () => void
 }
 
+function normalizePiUserId(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (/^pi-[^\s]+$/i.test(trimmed)) {
+    return trimmed.replace(/^pi-/i, "")
+  }
+  return trimmed
+}
+
+function getPiUserId(user: unknown): string | null {
+  if (!user || typeof user !== "object") return null
+
+  const authUser = user as Record<string, unknown>
+
+  return (
+    normalizePiUserId(authUser.piUserId) ||
+    normalizePiUserId(authUser.uid) ||
+    normalizePiUserId(authUser.userId) ||
+    normalizePiUserId(authUser.id)
+  )
+}
+
+function getPiUsername(user: unknown): string | null {
+  if (!user || typeof user !== "object") return null
+
+  const authUser = user as Record<string, unknown>
+  const candidate = authUser.piUsername || authUser.username || authUser.name || authUser.displayName
+
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null
+}
+
+function getPiPaymentApi(): PiWithPayments | null {
+  const pi = window.Pi as unknown
+
+  if (!pi || typeof pi !== "object") {
+    return null
+  }
+
+  const paymentPi = pi as Partial<PiWithPayments>
+
+  if (typeof paymentPi.createPayment !== "function") {
+    return null
+  }
+
+  return paymentPi as PiWithPayments
+}
+
 export function DonationModal({ isOpen, onClose }: DonationModalProps) {
-  const [selectedAmount, setSelectedAmount] = useState<number | null>(null)
+  const { user, isAuthenticated, isPiUser } = useAuth()
+  const { isAuthenticated: isPiAuthenticated, reinitialize } = usePiAuth()
+
+  const [selectedAmount, setSelectedAmount] = useState<number | null>(1)
   const [customAmount, setCustomAmount] = useState("")
-  const [selectedMethod, setSelectedMethod] = useState<string | null>(null)
-  const [donorName, setDonorName] = useState("")
-  const [donorMessage, setDonorMessage] = useState("")
-  const [copiedField, setCopiedField] = useState("")
+  const [status, setStatus] = useState<"idle" | "processing" | "success" | "cancelled" | "error">("idle")
+  const [statusMessage, setStatusMessage] = useState("")
 
-  const predefinedAmounts = [10, 25, 50, 100]
+  const piUserId = useMemo(() => getPiUserId(user), [user])
+  const username = useMemo(() => getPiUsername(user), [user])
 
-  const donationMethods = [
-    {
-      id: "paypal",
-      name: "PayPal",
-      icon: <DollarSign className="w-5 h-5" />,
-      address: "donations@brightsidenews.com",
-      description: "Secure PayPal donation",
-      color: "bg-blue-500",
-    },
-    {
-      id: "stripe",
-      name: "Credit Card",
-      icon: <CreditCard className="w-5 h-5" />,
-      address: "https://donate.stripe.com/brightside",
-      description: "Secure credit card payment",
-      color: "bg-purple-500",
-    },
-    {
-      id: "pi",
-      name: "Pi Network",
-      icon: (
-        <div className="w-5 h-5 bg-purple-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
-          π
-        </div>
-      ),
-      address: "@brightsidenews",
-      description: "Pi cryptocurrency donation",
-      color: "bg-purple-600",
-    },
-  ]
+  const amount = selectedAmount ?? (customAmount ? Number.parseFloat(customAmount) : 0)
+  const isValidAmount = Number.isFinite(amount) && amount >= PI_DONATION_MIN
 
-  const impactMessages = {
-    10: "Helps fund app development for one day",
-    25: "Supports new feature development for a week",
-    50: "Funds server costs and global expansion for a month",
-    100: "Enables major app improvements and new language support",
+  const resetAndClose = () => {
+    setStatus("idle")
+    setStatusMessage("")
+    setSelectedAmount(1)
+    setCustomAmount("")
+    onClose()
   }
 
-  const copyToClipboard = (text: string, field: string) => {
-    navigator.clipboard.writeText(text)
-    setCopiedField(field)
-    setTimeout(() => setCopiedField(""), 2000)
-  }
+  const persistStatus = async (
+    paymentId: string,
+    endpoint: "approve" | "complete" | "cancel",
+    body: Record<string, unknown>
+  ) => {
+    const response = await fetch(`/api/donations/${paymentId}/${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    })
 
-  const getSelectedAmountValue = () => {
-    return selectedAmount || (customAmount ? Number.parseFloat(customAmount) : 0)
-  }
+    const data = await response.json().catch(() => null)
 
-  const handleDonate = () => {
-    const amount = getSelectedAmountValue()
-    if (!amount || !selectedMethod) return
-
-    const method = donationMethods.find((m) => m.id === selectedMethod)
-    if (!method) return
-
-    // For external links (like Stripe), open in new tab
-    if (method.address.startsWith("http")) {
-      window.open(method.address, "_blank")
-    } else {
-      // For crypto addresses, copy to clipboard
-      copyToClipboard(method.address, selectedMethod)
-      alert(`${method.name} address copied to clipboard! Amount: $${amount}`)
+    if (!response.ok) {
+      throw new Error(data?.error || `Failed to ${endpoint} donation`)
     }
 
-    // Reset form
-    setSelectedAmount(null)
-    setCustomAmount("")
-    setSelectedMethod(null)
-    setDonorName("")
-    setDonorMessage("")
-    onClose()
+    return data
+  }
+
+  const handleDonate = async () => {
+    if (!isAuthenticated || !isPiUser || !isPiAuthenticated || !piUserId || !username) {
+      setStatus("error")
+      setStatusMessage("Please sign in with Pi in Pi Browser before donating.")
+      return
+    }
+
+    let piPaymentApi = getPiPaymentApi()
+
+    if (!piPaymentApi) {
+      try {
+        await reinitialize()
+      } catch {
+        // handled below
+      }
+    }
+
+    piPaymentApi = getPiPaymentApi()
+
+    if (!piPaymentApi) {
+      setStatus("error")
+      setStatusMessage("Pi payment is only available inside Pi Browser with an active Pi session.")
+      return
+    }
+
+    if (!isValidAmount) {
+      setStatus("error")
+      setStatusMessage(`Please enter at least ${formatPiAmount(PI_DONATION_MIN)}.`)
+      return
+    }
+
+    setStatus("processing")
+    setStatusMessage(`Opening Pi wallet for ${formatPiAmount(amount)}...`)
+
+    const memo = `BrightSide News donation - ${formatPiAmount(amount)}`
+    const metadata = {
+      type: "donation",
+      source: "brightside-news",
+      piUserId,
+      username,
+    }
+
+    try {
+      await piPaymentApi.createPayment(
+        {
+          amount,
+          memo,
+          metadata,
+        },
+        {
+          onReadyForServerApproval: async (paymentId: string) => {
+            await persistStatus(paymentId, "approve", {
+              amount,
+              memo,
+              metadata,
+              piUserId,
+              username,
+            })
+            setStatusMessage("Payment approved. Waiting for Pi completion...")
+          },
+          onReadyForServerCompletion: async (paymentId: string, txid: string) => {
+            await persistStatus(paymentId, "complete", {
+              amount,
+              memo,
+              metadata,
+              piUserId,
+              username,
+              txid,
+            })
+            setStatus("success")
+            setStatusMessage(`Thank you for donating ${formatPiAmount(amount)} to BrightSide News.`)
+          },
+          onCancel: async (paymentId: string) => {
+            await persistStatus(paymentId, "cancel", {
+              amount,
+              memo,
+              metadata,
+              piUserId,
+              username,
+            })
+            setStatus("cancelled")
+            setStatusMessage("Donation was cancelled.")
+          },
+          onError: async (error: unknown, payment?: PiPaymentReference) => {
+            const paymentId = payment?.identifier
+
+            if (paymentId) {
+              try {
+                await persistStatus(paymentId, "cancel", {
+                  amount,
+                  memo,
+                  metadata,
+                  piUserId,
+                  username,
+                  error: error instanceof Error ? error.message : "Pi payment error",
+                })
+              } catch {
+                // ignore secondary failure
+              }
+            }
+
+            setStatus("error")
+            setStatusMessage(error instanceof Error ? error.message : "Pi payment failed.")
+          },
+        }
+      )
+    } catch (error: unknown) {
+      setStatus("error")
+      setStatusMessage(error instanceof Error ? error.message : "Could not start Pi payment.")
+    }
   }
 
   if (!isOpen) return null
@@ -115,69 +247,67 @@ export function DonationModal({ isOpen, onClose }: DonationModalProps) {
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <CardHeader className="relative">
-          <Button variant="ghost" size="sm" className="absolute right-0 top-0" onClick={onClose}>
+          <Button variant="ghost" size="sm" className="absolute right-0 top-0" onClick={resetAndClose}>
             <X className="w-5 h-5" />
           </Button>
           <div className="text-center">
             <div className="w-16 h-16 bg-gradient-to-r from-sky-500 to-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
               <Heart className="w-8 h-8 text-white" />
             </div>
-            <CardTitle className="text-2xl font-bold text-gray-800">Support BrightSide News Development</CardTitle>
-            <p className="text-gray-600 mt-2">
-              Help us continue developing this app and bringing positive news to the world
-            </p>
+            <CardTitle className="text-2xl font-bold text-gray-800">Support BrightSide News with Pi</CardTitle>
+            <p className="text-gray-600 mt-2">Donate directly from your Pi wallet to support development.</p>
           </div>
         </CardHeader>
 
         <CardContent className="space-y-6">
-          {/* Development Impact Section */}
           <div className="bg-gradient-to-r from-sky-50 to-blue-50 p-4 rounded-lg border border-sky-200">
             <h4 className="font-semibold text-sky-800 mb-3 flex items-center gap-2">
               <Code className="w-5 h-5" />
-              Your Donation Supports App Development
+              Your Pi donation supports app development
             </h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
               <div className="flex items-center gap-2 text-sky-700">
                 <Smartphone className="w-4 h-4" />
-                <span>New Features & UI Improvements</span>
+                <span>New features and UX improvements</span>
               </div>
               <div className="flex items-center gap-2 text-sky-700">
                 <Globe className="w-4 h-4" />
-                <span>Global News Sources & Languages</span>
+                <span>Global reach and content expansion</span>
               </div>
               <div className="flex items-center gap-2 text-sky-700">
                 <Zap className="w-4 h-4" />
-                <span>Server Costs & Performance</span>
+                <span>Platform reliability and launch support</span>
               </div>
             </div>
           </div>
 
-          {/* Amount Selection */}
           <div>
-            <Label className="text-base font-semibold mb-3 block">Choose Amount</Label>
+            <Label className="text-base font-semibold mb-3 block">Choose amount in Pi</Label>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              {predefinedAmounts.map((amount) => (
+              {PI_DONATION_PRESETS.map((preset) => (
                 <Button
-                  key={amount}
-                  variant={selectedAmount === amount ? "default" : "outline"}
-                  className={`h-16 flex flex-col ${selectedAmount === amount ? "bg-sky-600 hover:bg-sky-700" : ""}`}
+                  key={preset}
+                  variant={selectedAmount === preset ? "default" : "outline"}
+                  className={`h-16 flex flex-col ${selectedAmount === preset ? "bg-sky-600 hover:bg-sky-700" : ""}`}
                   onClick={() => {
-                    setSelectedAmount(amount)
+                    setSelectedAmount(preset)
                     setCustomAmount("")
                   }}
                 >
-                  <span className="text-lg font-bold">${amount}</span>
-                  <span className="text-xs opacity-80">{impactMessages[amount as keyof typeof impactMessages]}</span>
+                  <span className="text-lg font-bold">{preset} π</span>
+                  <span className="text-xs opacity-80">Quick donate</span>
                 </Button>
               ))}
             </div>
 
             <div>
-              <Label htmlFor="custom-amount">Custom Amount ($)</Label>
+              <Label htmlFor="custom-amount">Custom amount (π)</Label>
               <Input
                 id="custom-amount"
                 type="number"
-                placeholder="Enter custom amount"
+                min={PI_DONATION_MIN}
+                step="0.1"
+                placeholder="Enter custom Pi amount"
                 value={customAmount}
                 onChange={(e) => {
                   setCustomAmount(e.target.value)
@@ -187,141 +317,76 @@ export function DonationModal({ isOpen, onClose }: DonationModalProps) {
               />
             </div>
 
-            {getSelectedAmountValue() > 0 && (
+            {isValidAmount && (
               <div className="mt-3 p-3 bg-sky-50 border border-sky-200 rounded-lg">
                 <p className="text-sm text-sky-800">
-                  <strong>Development Impact:</strong>{" "}
-                  {impactMessages[getSelectedAmountValue() as keyof typeof impactMessages] ||
-                    "Your generous donation helps us continue developing BrightSide News and expanding our positive impact worldwide!"}
+                  <strong>You are donating:</strong> {formatPiAmount(amount)}
                 </p>
+                <p className="text-sm text-sky-700 mt-1">{getDonationImpactMessage(amount)}</p>
               </div>
             )}
           </div>
 
-          {/* Payment Methods */}
-          <div>
-            <Label className="text-base font-semibold mb-3 block">Payment Method</Label>
-            <div className="grid grid-cols-1 gap-3">
-              {donationMethods.map((method) => (
-                <Card
-                  key={method.id}
-                  className={`cursor-pointer transition-all ${
-                    selectedMethod === method.id ? "ring-2 ring-sky-500 bg-sky-50" : "hover:shadow-md"
-                  }`}
-                  onClick={() => setSelectedMethod(method.id)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-10 h-10 ${method.color} rounded-lg flex items-center justify-center text-white`}
-                      >
-                        {method.icon}
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="font-medium text-gray-800">{method.name}</h4>
-                        <p className="text-xs text-gray-500">{method.description}</p>
-                      </div>
-                      {selectedMethod === method.id && <CheckCircle className="w-5 h-5 text-sky-600" />}
-                    </div>
-
-                    {selectedMethod === method.id && (
-                      <div className="mt-3 pt-3 border-t border-gray-200">
-                        <div className="flex items-center gap-2">
-                          <code className="flex-1 text-xs bg-gray-100 p-2 rounded font-mono">{method.address}</code>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              copyToClipboard(method.address, method.id)
-                            }}
-                          >
-                            {copiedField === method.id ? (
-                              <CheckCircle className="w-4 h-4" />
-                            ) : (
-                              <Copy className="w-4 h-4" />
-                            )}
-                          </Button>
-                        </div>
-                        {method.address.startsWith("http") && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="mt-2 w-full"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              window.open(method.address, "_blank")
-                            }}
-                          >
-                            <ExternalLink className="w-4 h-4 mr-2" />
-                            Open Payment Page
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
+          <div className="p-4 border border-purple-200 bg-purple-50 rounded-lg">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 bg-purple-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
+                π
+              </div>
+              <div>
+                <p className="font-semibold text-purple-800">Pi wallet payment</p>
+                <p className="text-sm text-purple-700">You must be signed in with Pi inside Pi Browser to complete this donation.</p>
+              </div>
             </div>
           </div>
 
-          {/* Optional Donor Information */}
-          <div className="space-y-4">
-            <Label className="text-base font-semibold">Optional Information</Label>
-            <div>
-              <Label htmlFor="donor-name">Your Name (for recognition)</Label>
-              <Input
-                id="donor-name"
-                placeholder="Enter your name (optional)"
-                value={donorName}
-                onChange={(e) => setDonorName(e.target.value)}
-                className="mt-1"
-              />
+          {status !== "idle" && (
+            <div
+              className={`p-4 rounded-lg border ${
+                status === "success"
+                  ? "border-green-200 bg-green-50 text-green-800"
+                  : status === "error"
+                    ? "border-red-200 bg-red-50 text-red-800"
+                    : status === "cancelled"
+                      ? "border-yellow-200 bg-yellow-50 text-yellow-800"
+                      : "border-sky-200 bg-sky-50 text-sky-800"
+              }`}
+            >
+              <div className="flex items-start gap-2">
+                {status === "success" ? (
+                  <CheckCircle2 className="w-5 h-5 mt-0.5" />
+                ) : status === "error" ? (
+                  <AlertCircle className="w-5 h-5 mt-0.5" />
+                ) : status === "processing" ? (
+                  <Loader2 className="w-5 h-5 mt-0.5 animate-spin" />
+                ) : (
+                  <Coins className="w-5 h-5 mt-0.5" />
+                )}
+                <p className="text-sm font-medium">{statusMessage}</p>
+              </div>
             </div>
-            <div>
-              <Label htmlFor="donor-message">Message</Label>
-              <Textarea
-                id="donor-message"
-                placeholder="Leave a message of support for the development team (optional)"
-                value={donorMessage}
-                onChange={(e) => setDonorMessage(e.target.value)}
-                rows={3}
-                className="mt-1"
-              />
-            </div>
-          </div>
+          )}
 
-          {/* Donate Button */}
-          <div className="pt-4 border-t border-gray-200">
+          <div className="flex flex-col sm:flex-row gap-3">
             <Button
               onClick={handleDonate}
-              disabled={!getSelectedAmountValue() || !selectedMethod}
-              className="w-full bg-sky-600 hover:bg-sky-700 h-12 text-lg"
+              disabled={!isValidAmount || status === "processing"}
+              className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
             >
-              <Heart className="w-5 h-5 mr-2" />
-              Support Development - ${getSelectedAmountValue() || 0}
+              {status === "processing" ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Coins className="w-4 h-4 mr-2" />
+                  Donate with Pi
+                </>
+              )}
             </Button>
-            <p className="text-xs text-gray-500 text-center mt-2">
-              Your donation directly supports BrightSide News app development and global expansion
-            </p>
-          </div>
-
-          {/* Contact Information */}
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <div className="flex items-center gap-2 mb-2">
-              <Mail className="w-4 h-4 text-gray-600" />
-              <span className="text-sm font-medium text-gray-800">Questions about donations or development?</span>
-            </div>
-            <p className="text-sm text-gray-600">
-              Contact us at{" "}
-              <a href="mailto:donations@brightsidenews.com" className="text-sky-600 hover:underline">
-                donations@brightsidenews.com
-              </a>
-            </p>
-            <p className="text-xs text-gray-500 mt-2">
-              BrightSide News is committed to transparency. All donations go directly toward app development, new
-              features, server costs, and expanding our positive news coverage worldwide.
-            </p>
+            <Button variant="outline" onClick={resetAndClose}>
+              Close
+            </Button>
           </div>
         </CardContent>
       </Card>

@@ -1,129 +1,32 @@
-export interface DonationMethod {
-  id: string
-  name: string
-  type: "paypal" | "stripe" | "crypto" | "pi"
-  address: string
-  isActive: boolean
-  description?: string
+import type { DonationRecord } from "@/types/user-data"
+
+export const PI_DONATION_PRESETS = [1, 5, 10, 20] as const
+export const PI_DONATION_MIN = 0.1
+
+export function formatPiAmount(amount: number) {
+  const normalized = Number.isInteger(amount) ? amount.toString() : amount.toFixed(2).replace(/\.00$/, "")
+  return `${normalized} π`
 }
 
-export interface DonationRecord {
-  id: string
-  amount: number
-  currency: string
-  method: string
-  donorName?: string
-  donorMessage?: string
-  status: "completed" | "pending" | "failed"
-  timestamp: string
-  transactionId?: string
+export function getDonationImpactMessage(amount: number) {
+  if (amount >= 20) return "Helps fund major app improvements and launch support."
+  if (amount >= 10) return "Supports Pi payments, app polish, and feature work."
+  if (amount >= 5) return "Helps maintain development and platform costs."
+  return "Supports BrightSide News and ongoing development."
 }
 
-export class DonationSettings {
-  private static instance: DonationSettings
-  private methods: DonationMethod[] = []
-  private records: DonationRecord[] = []
-
-  static getInstance(): DonationSettings {
-    if (!DonationSettings.instance) {
-      DonationSettings.instance = new DonationSettings()
-    }
-    return DonationSettings.instance
-  }
-
-  getMethods(): DonationMethod[] {
-    return [...this.methods]
-  }
-
-  getRecords(): DonationRecord[] {
-    return [...this.records]
-  }
-
-  addMethod(method: Omit<DonationMethod, "id">): void {
-    const newMethod: DonationMethod = {
-      ...method,
-      id: `method_${Date.now()}`,
-    }
-    this.methods.push(newMethod)
-    this.saveToStorage()
-  }
-
-  updateMethod(id: string, updates: Partial<DonationMethod>): void {
-    const index = this.methods.findIndex((m) => m.id === id)
-    if (index !== -1) {
-      this.methods[index] = { ...this.methods[index], ...updates }
-      this.saveToStorage()
-    }
-  }
-
-  removeMethod(id: string): void {
-    this.methods = this.methods.filter((m) => m.id !== id)
-    this.saveToStorage()
-  }
-
-  addRecord(record: Omit<DonationRecord, "id" | "timestamp">): void {
-    const newRecord: DonationRecord = {
-      ...record,
-      id: `record_${Date.now()}`,
-      timestamp: new Date().toISOString(),
-    }
-    this.records.unshift(newRecord)
-    this.saveToStorage()
-  }
-
-  private saveToStorage(): void {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("brightside-donation-methods", JSON.stringify(this.methods))
-      localStorage.setItem("brightside-donation-records", JSON.stringify(this.records))
-    }
-  }
-
-  loadFromStorage(): void {
-    if (typeof window !== "undefined") {
-      const storedMethods = localStorage.getItem("brightside-donation-methods")
-      const storedRecords = localStorage.getItem("brightside-donation-records")
-
-      if (storedMethods) {
-        try {
-          this.methods = JSON.parse(storedMethods)
-        } catch (error) {
-          console.error("Failed to load donation methods:", error)
-        }
-      }
-
-      if (storedRecords) {
-        try {
-          this.records = JSON.parse(storedRecords)
-        } catch (error) {
-          console.error("Failed to load donation records:", error)
-        }
-      }
-
-      // Initialize with default methods if none exist
-      if (this.methods.length === 0) {
-        this.initializeDefaultMethods()
-      }
-    }
-  }
-
-  private initializeDefaultMethods(): void {
-    const defaultMethods: Omit<DonationMethod, "id">[] = [
-      {
-        name: "PayPal",
-        type: "paypal",
-        address: "donations@brightsidenews.com",
-        isActive: true,
-        description: "Secure PayPal donations",
-      },
-      {
-        name: "Pi Network",
-        type: "pi",
-        address: "@brightsidenews",
-        isActive: true,
-        description: "Pi cryptocurrency donations",
-      },
-    ]
-
-    defaultMethods.forEach((method) => this.addMethod(method))
+export function getDonationStatusTone(status: DonationRecord["status"]) {
+  switch (status) {
+    case "completed":
+      return "default" as const
+    case "approved":
+    case "pending":
+      return "secondary" as const
+    case "cancelled":
+      return "outline" as const
+    case "failed":
+      return "destructive" as const
+    default:
+      return "outline" as const
   }
 }

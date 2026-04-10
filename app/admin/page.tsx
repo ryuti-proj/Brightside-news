@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,9 +28,9 @@ import {
   Database,
   MessageSquare,
   Star,
+  Loader2,
 } from "lucide-react"
 
-// Login Component
 function AdminLogin({ onLogin }: { onLogin: () => void }) {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
@@ -44,16 +44,24 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
     setIsLoading(true)
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const response = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ username, password }),
+      })
 
-      if (username === "admin" && password === "brightside2024!") {
-        localStorage.setItem("brightside-admin-auth", "true")
-        localStorage.setItem("brightside-admin-time", Date.now().toString())
-        onLogin()
-      } else {
-        setError("Invalid credentials")
+      const data = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        setError(data?.error || "Invalid credentials")
+        return
       }
-    } catch (error) {
+
+      onLogin()
+    } catch {
       setError("Login failed")
     } finally {
       setIsLoading(false)
@@ -68,7 +76,7 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
             <Shield className="w-8 h-8 text-white" />
           </div>
           <CardTitle className="text-2xl font-bold">BrightSide Admin</CardTitle>
-          <p className="text-gray-600">Administration Panel</p>
+          <p className="text-gray-600">Secure administration panel</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -118,7 +126,7 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
             >
               {isLoading ? (
                 <>
-                  <Clock className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Signing in...
                 </>
               ) : (
@@ -126,74 +134,53 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
               )}
             </Button>
           </form>
-
-          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm font-medium text-blue-800 mb-2">Demo Credentials:</p>
-            <div className="text-sm text-blue-700">
-              <p>
-                <strong>Username:</strong> admin
-              </p>
-              <p>
-                <strong>Password:</strong> brightside2024!
-              </p>
-            </div>
-          </div>
         </CardContent>
       </Card>
     </div>
   )
 }
 
-// Main Admin Dashboard
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("overview")
 
   useEffect(() => {
-    const checkAuth = () => {
+    const checkAuth = async () => {
       try {
-        const authStatus = localStorage.getItem("brightside-admin-auth")
-        const authTime = localStorage.getItem("brightside-admin-time")
+        const response = await fetch("/api/admin/session", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        })
 
-        if (authStatus === "true" && authTime) {
-          const loginTime = Number.parseInt(authTime)
-          const currentTime = Date.now()
-          const sessionDuration = 24 * 60 * 60 * 1000 // 24 hours
-
-          if (currentTime - loginTime < sessionDuration) {
-            setIsAuthenticated(true)
-          } else {
-            localStorage.removeItem("brightside-admin-auth")
-            localStorage.removeItem("brightside-admin-time")
-          }
-        }
-      } catch (error) {
-        console.error("Auth check error:", error)
+        const data = await response.json().catch(() => null)
+        setIsAuthenticated(Boolean(data?.authenticated))
+      } catch {
+        setIsAuthenticated(false)
       } finally {
         setIsLoading(false)
       }
     }
 
-    checkAuth()
+    void checkAuth()
   }, [])
 
-  const logout = () => {
-    localStorage.removeItem("brightside-admin-auth")
-    localStorage.removeItem("brightside-admin-time")
-    setIsAuthenticated(false)
-  }
+  const handleLogout = async () => {
+    await fetch("/api/admin/logout", {
+      method: "POST",
+      credentials: "include",
+    }).catch(() => null)
 
-  const goHome = () => {
-    window.location.href = "/"
+    setIsAuthenticated(false)
   }
 
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading admin panel...</p>
+        <div className="flex items-center gap-3 text-gray-600">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span>Checking admin session...</span>
         </div>
       </div>
     )
@@ -204,117 +191,71 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="text-gray-600 mt-2">Manage your BrightSide News platform</p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      <div className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-10">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">BrightSide Admin</h1>
+              <p className="text-gray-600">Manage content, users, security, and Pi donations</p>
+            </div>
+            <Button variant="outline" onClick={handleLogout}>
+              Logout
+            </Button>
+          </div>
         </div>
+      </div>
 
-        {/* Navigation Tabs */}
+      <div className="container mx-auto px-4 py-8">
         <div className="space-y-6">
-          <div className="grid w-full grid-cols-4 lg:grid-cols-8 bg-white border border-gray-200">
-            <Button
-              variant={activeTab === "overview" ? "default" : "ghost"}
-              className="flex items-center gap-2"
-              onClick={() => setActiveTab("overview")}
-            >
+          <div className="flex flex-wrap gap-2">
+            <Button variant={activeTab === "overview" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("overview")}>
               <BarChart3 className="w-4 h-4" />
               <span className="hidden sm:inline">Overview</span>
             </Button>
-            <Button
-              variant={activeTab === "stories" ? "default" : "ghost"}
-              className="flex items-center gap-2"
-              onClick={() => setActiveTab("stories")}
-            >
+            <Button variant={activeTab === "stories" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("stories")}>
               <FileText className="w-4 h-4" />
               <span className="hidden sm:inline">Stories</span>
             </Button>
-            <Button
-              variant={activeTab === "categories" ? "default" : "ghost"}
-              className="flex items-center gap-2"
-              onClick={() => setActiveTab("categories")}
-            >
+            <Button variant={activeTab === "categories" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("categories")}>
               <Tag className="w-4 h-4" />
               <span className="hidden sm:inline">Categories</span>
             </Button>
-            <Button
-              variant={activeTab === "featured" ? "default" : "ghost"}
-              className="flex items-center gap-2"
-              onClick={() => setActiveTab("featured")}
-            >
+            <Button variant={activeTab === "featured" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("featured")}>
               <Star className="w-4 h-4" />
               <span className="hidden sm:inline">Featured</span>
             </Button>
-            <Button
-              variant={activeTab === "users" ? "default" : "ghost"}
-              className="flex items-center gap-2"
-              onClick={() => setActiveTab("users")}
-            >
+            <Button variant={activeTab === "users" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("users")}>
               <Users className="w-4 h-4" />
               <span className="hidden sm:inline">Users</span>
             </Button>
-            <Button
-              variant={activeTab === "comments" ? "default" : "ghost"}
-              className="flex items-center gap-2"
-              onClick={() => setActiveTab("comments")}
-            >
+            <Button variant={activeTab === "comments" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("comments")}>
               <MessageSquare className="w-4 h-4" />
               <span className="hidden sm:inline">Comments</span>
             </Button>
-            <Button
-              variant={activeTab === "donations" ? "default" : "ghost"}
-              className="flex items-center gap-2"
-              onClick={() => setActiveTab("donations")}
-            >
+            <Button variant={activeTab === "donations" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("donations")}>
               <Heart className="w-4 h-4" />
               <span className="hidden sm:inline">Donations</span>
             </Button>
-            <Button
-              variant={activeTab === "backup" ? "default" : "ghost"}
-              className="flex items-center gap-2"
-              onClick={() => setActiveTab("backup")}
-            >
+            <Button variant={activeTab === "backup" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("backup")}>
               <Database className="w-4 h-4" />
               <span className="hidden sm:inline">Backup</span>
             </Button>
-            <Button
-              variant={activeTab === "security" ? "default" : "ghost"}
-              className="flex items-center gap-2"
-              onClick={() => setActiveTab("security")}
-            >
+            <Button variant={activeTab === "security" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("security")}>
               <Shield className="w-4 h-4" />
               <span className="hidden sm:inline">Security</span>
             </Button>
           </div>
 
-          {/* Tab Content */}
           <div className="space-y-6">
-            {activeTab === "overview" && (
-              <div>
-                <AdminDashboardStats />
-              </div>
-            )}
-
+            {activeTab === "overview" && <AdminDashboardStats />}
             {activeTab === "stories" && <AdminStories />}
-
             {activeTab === "categories" && <AdminCategories />}
-
             {activeTab === "featured" && <AdminFeaturedCategories />}
-
             {activeTab === "users" && <AdminUsers />}
-
             {activeTab === "comments" && <AdminComments />}
-
             {activeTab === "donations" && <AdminDonations />}
-
-            {activeTab === "backup" && (
-              <div>
-                <BackupPanel />
-              </div>
-            )}
-
+            {activeTab === "backup" && <BackupPanel />}
             {activeTab === "security" && <AdminSecurity />}
           </div>
         </div>
