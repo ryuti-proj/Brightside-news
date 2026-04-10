@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { useAuth } from "@/contexts/auth-context"
-import { useSavedStories } from "@/hooks/use-saved-stories"
+import { buildSavedStoryId, useSavedStories } from "@/hooks/use-saved-stories"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -65,7 +65,14 @@ export function UserBookmarks() {
     if (!confirm("Remove this story from your bookmarks?")) return
 
     try {
-      await deleteSavedStory(bookmark)
+      await deleteSavedStory(
+        buildSavedStoryId({
+          title: bookmark.title,
+          source: bookmark.source || null,
+          url: bookmark.url || null,
+          category: bookmark.category || null,
+        })
+      )
     } catch {
       alert("Could not remove saved story. Please try again.")
     }

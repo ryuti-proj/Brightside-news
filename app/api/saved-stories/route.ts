@@ -1,75 +1,67 @@
-import { NextResponse } from "next/server"
-import { requireCurrentUser } from "../../../lib/current-user"
-import { getSavedStoriesByUserId, saveStoryForUser } from "../../../lib/user-data-store"
+import { NextRequest, NextResponse } from "next/server"
+import {
+  getSavedStoriesByUserId,
+  isStorySaved,
+  removeSavedStoryForUser,
+  saveStoryForUser,
+} from "@/lib/user-data-store"
 
-export async function GET() {
+function normalize(value: string | null | undefined) {
+  return (value || "").trim()
+}
+
+export async function GET(request: NextRequest) {
   try {
-    const { user, error } = await requireCurrentUser()
+    const { searchParams } = new URL(request.url)
+    const piUserId = normalize(searchParams.get("piUserId"))
 
-    if (!user) {
-      return NextResponse.json({ ok: false, error }, { status: 401 })
+    if (!piUserId) {
+      return NextResponse.json({ error: "Missing piUserId" }, { status: 400 })
     }
 
-    const savedStories = await getSavedStoriesByUserId(user.id)
+    const savedStories = await getSavedStoriesByUserId(piUserId)
 
-    return NextResponse.json({
-      ok: true,
-      savedStories,
-    })
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "Failed to load saved stories." },
-      { status: 500 }
-    )
+    return NextResponse.json(savedStories)
+  } catch (error) {
+    console.error("GET /api/saved-stories failed:", error)
+    return NextResponse.json({ error: "Failed to fetch saved stories" }, { status: 500 })
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const { user, error } = await requireCurrentUser()
-
-    if (!user) {
-      return NextResponse.json({ ok: false, error }, { status: 401 })
-    }
-
     const body = await request.json()
+    const piUserId = normalize(body?.piUserId)
+    const story = body?.story
 
-    const storyId =
-      typeof body?.storyId === "string" && body.storyId.trim()
-        ? body.storyId.trim()
-        : null
-
-    const title =
-      typeof body?.title === "string" && body.title.trim()
-        ? body.title.trim()
-        : null
-
-    if (!storyId || !title) {
-      return NextResponse.json(
-        { ok: false, error: "storyId and title are required." },
-        { status: 400 }
-      )
+    if (!piUserId || !story) {
+      return NextResponse.json({ error: "Missing piUserId or story" }, { status: 400 })
     }
 
-    const savedStory = await saveStoryForUser(user.id, {
-      storyId,
-      title,
-      summary: typeof body?.summary === "string" ? body.summary : null,
-      imageUrl: typeof body?.imageUrl === "string" ? body.imageUrl : null,
-      source: typeof body?.source === "string" ? body.source : null,
-      url: typeof body?.url === "string" ? body.url : null,
-      publishedAt: typeof body?.publishedAt === "string" ? body.publishedAt : null,
-      category: typeof body?.category === "string" ? body.category : null,
-    })
+    const savedStory = await saveStoryForUser(piUserId, story)
 
-    return NextResponse.json({
-      ok: true,
-      savedStory,
-    })
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "Failed to save story." },
-      { status: 500 }
-    )
+    return NextResponse.json(savedStory)
+  } catch (error) {
+    console.error("POST /api/saved-stories failed:", error)
+    return NextResponse.json({ error: "Failed to save story" }, { status: 500 })
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const piUserId = normalize(body?.piUserId)
+    const storyId = normalize(body?.storyId)
+
+    if (!piUserId || !storyId) {
+      return NextResponse.json({ error: "Missing piUserId or storyId" }, { status: 400 })
+    }
+
+    const removed = await removeSavedStoryForUser(piUserId, storyId)
+
+    return NextResponse.json({ success: removed })
+  } catch (error) {
+    console.error("DELETE /api/saved-stories failed:", error)
+    return NextResponse.json({ error: "Failed to delete story" }, { status: 500 })
   }
 }

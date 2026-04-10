@@ -2,40 +2,62 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { SavedStory, SaveStoryInput } from "@/types/user-data"
-import {
-  fetchSavedStories,
-  removeSavedStory,
-  saveStory,
-} from "@/lib/saved-stories-client"
+import { fetchSavedStories, removeSavedStory, saveStory } from "@/lib/saved-stories-client"
 
 function normalize(value: string | null | undefined) {
   return (value || "").trim().toLowerCase()
 }
 
-// 🔑 ALWAYS prefer URL as primary identity
-function getPrimaryKey(story: Partial<SaveStoryInput>) {
-  return normalize(story.url) || normalize(story.title)
+export function buildSavedStoryId(story: Partial<SaveStoryInput>) {
+  const normalizedUrl = normalize(story.url)
+  const normalizedTitle = normalize(story.title)
+  const normalizedSource = normalize(story.source)
+  const normalizedCategory = normalize(story.category)
+
+  if (normalizedUrl) {
+    return `url:${normalizedUrl}`
+  }
+
+  return `meta:${normalizedTitle}|${normalizedSource}|${normalizedCategory}`
+}
+
+function getMatchKey(story: Partial<SaveStoryInput>) {
+  return buildSavedStoryId(story)
 }
 
 export function useSavedStories(piUserId: string | null | undefined) {
   const [savedStories, setSavedStories] = useState<SavedStory[]>([])
+  const [isLoading, setIsLoading] = useState(false)
   const [isLoaded, setIsLoaded] = useState(false)
 
-  useEffect(() => {
-    if (!piUserId) return
-
-    fetchSavedStories(piUserId).then((data) => {
-      setSavedStories(data)
+  const loadSavedStories = useCallback(async () => {
+    if (!piUserId) {
+      setSavedStories([])
       setIsLoaded(true)
-    })
+      setIsLoading(false)
+      return
+    }
+
+    setIsLoading(true)
+
+    try {
+      const data = await fetchSavedStories(piUserId)
+      setSavedStories(Array.isArray(data) ? data : [])
+      setIsLoaded(true)
+    } finally {
+      setIsLoading(false)
+    }
   }, [piUserId])
 
-  // 🔑 Build lookup by URL/title (NOT storyId)
+  useEffect(() => {
+    void loadSavedStories()
+  }, [loadSavedStories])
+
   const savedKeys = useMemo(() => {
     const set = new Set<string>()
 
     savedStories.forEach((story) => {
-      const key = getPrimaryKey(story)
+      const key = getMatchKey(story)
       if (key) set.add(key)
     })
 
@@ -44,7 +66,7 @@ export function useSavedStories(piUserId: string | null | undefined) {
 
   const isSaved = useCallback(
     (story: Partial<SaveStoryInput>) => {
-      const key = getPrimaryKey(story)
+      const key = getMatchKey(story)
       return key ? savedKeys.has(key) : false
     },
     [savedKeys]
@@ -52,64 +74,79 @@ export function useSavedStories(piUserId: string | null | undefined) {
 
   const addSavedStory = useCallback(
     async (story: SaveStoryInput) => {
-      if (!piUserId) throw new Error("No user")
+      if (!piUserId) {
+        throw new Error("No user")
+      }
 
-      const saved = await saveStory(piUserId, story)
+      const payload: SaveStoryInput = {
+        ...story,
+        storyId: buildSavedStoryId(story),
+      }
+
+      const saved = await saveStory(piUserId, payload)
+      const savedKey = getMatchKey(saved)
 
       setSavedStories((prev) => {
-        const key = getPrimaryKey(saved)
-
-        // remove duplicates by URL/title
-        const filtered = prev.filter(
-          (s) => getPrimaryKey(s) !== key
-        )
-
+        const filtered = prev.filter((item) => getMatchKey(item) !== savedKey)
         return [saved, ...filtered]
       })
+
+      return saved
     },
     [piUserId]
   )
 
   const deleteSavedStory = useCallback(
-    async (story: Partial<SaveStoryInput>) => {
-      if (!piUserId) throw new Error("No user")
+    async (story: string | Partial<SaveStoryInput>) => {
+      if (!piUserId) {
+        throw new Error("No user")
+      }
 
-      const key = getPrimaryKey(story)
+      const key =
+        typeof story === "string"
+          ? story
+          : getMatchKey(story)
 
-      const match = savedStories.find(
-        (s) => getPrimaryKey(s) === key
-      )
+      if (!key) {
+        return false
+      }
 
-      if (!match) return false
+      const removed = await removeSavedStory(piUserId, key)
 
-      await removeSavedStory(piUserId, match.storyId)
+      if (removed) {
+        setSavedStories((prev) => prev.filter((item) => getMatchKey(item) !== key))
+      }
 
-      setSavedStories((prev) =>
-        prev.filter((s) => getPrimaryKey(s) !== key)
-      )
-
-      return true
+      return removed
     },
-    [piUserId, savedStories]
+    [piUserId]
   )
 
   const toggleSavedStory = useCallback(
     async (story: SaveStoryInput) => {
-      if (isSaved(story)) {
-        await deleteSavedStory(story)
+      const key = buildSavedStoryId(story)
+
+      if (savedKeys.has(key)) {
+        await deleteSavedStory(key)
         return false
-      } else {
-        await addSavedStory(story)
-        return true
       }
+
+      await addSavedStory({
+        ...story,
+        storyId: key,
+      })
+
+      return true
     },
-    [isSaved, addSavedStory, deleteSavedStory]
+    [addSavedStory, deleteSavedStory, savedKeys]
   )
 
   return {
     savedStories,
+    isLoading,
     isLoaded,
     isSaved,
+    loadSavedStories,
     toggleSavedStory,
     deleteSavedStory,
   }

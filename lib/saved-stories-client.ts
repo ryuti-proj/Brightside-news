@@ -4,23 +4,46 @@ import type { SavedStory, SaveStoryInput } from "@/types/user-data"
 
 const BASE_URL = "/api/saved-stories"
 
-async function handleResponse(res: Response) {
-  if (!res.ok) {
-    throw new Error("Request failed")
+async function parseJsonSafe(response: Response) {
+  const text = await response.text()
+
+  if (!text) {
+    return null
   }
-  return res.json()
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+async function handleResponse<T>(response: Response): Promise<T> {
+  const data = await parseJsonSafe(response)
+
+  if (!response.ok) {
+    const message =
+      data && typeof data === "object" && "error" in data && typeof data.error === "string"
+        ? data.error
+        : "Request failed"
+
+    throw new Error(message)
+  }
+
+  return data as T
 }
 
 export async function fetchSavedStories(piUserId: string): Promise<SavedStory[]> {
-  const res = await fetch(`${BASE_URL}?piUserId=${piUserId}`)
-  return handleResponse(res)
+  const response = await fetch(`${BASE_URL}?piUserId=${encodeURIComponent(piUserId)}`, {
+    method: "GET",
+    cache: "no-store",
+  })
+
+  return handleResponse<SavedStory[]>(response)
 }
 
-export async function saveStory(
-  piUserId: string,
-  story: SaveStoryInput
-): Promise<SavedStory> {
-  const res = await fetch(BASE_URL, {
+export async function saveStory(piUserId: string, story: SaveStoryInput): Promise<SavedStory> {
+  const response = await fetch(BASE_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -31,37 +54,24 @@ export async function saveStory(
     }),
   })
 
-  return handleResponse(res)
+  return handleResponse<SavedStory>(response)
 }
 
-export async function removeSavedStory(
-  piUserId: string,
-  storyId: string
-): Promise<boolean> {
-  const res = await fetch(BASE_URL, {
+export async function removeSavedStory(piUserId: string, storyId: string): Promise<boolean> {
+  const response = await fetch(BASE_URL, {
     method: "DELETE",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       piUserId,
-      storyId, // 👈 IMPORTANT: send EXACT SAME ID we saved
+      storyId,
     }),
   })
 
-  return handleResponse(res)
-}
+  const data = await handleResponse<{ success?: boolean; removed?: boolean }>(response)
 
-export async function checkStorySaved(
-  piUserId: string,
-  storyId: string
-): Promise<boolean> {
-  const res = await fetch(
-    `${BASE_URL}/check?piUserId=${piUserId}&storyId=${encodeURIComponent(storyId)}`
-  )
-
-  const data = await handleResponse(res)
-  return data.saved
+  return Boolean(data?.success ?? data?.removed)
 }
 
 export async function syncUserProfile(input: {
@@ -70,11 +80,13 @@ export async function syncUserProfile(input: {
   displayName?: string | null
   avatarUrl?: string | null
 }) {
-  await fetch("/api/user", {
+  const response = await fetch("/api/user", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(input),
   })
+
+  return handleResponse(response)
 }
