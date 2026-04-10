@@ -102,16 +102,24 @@ export function useSavedStories(piUserId: string | null | undefined) {
         throw new Error("No user")
       }
 
-      const key =
+      const storyPayload =
         typeof story === "string"
-          ? story
-          : getMatchKey(story)
+          ? { storyId: story }
+          : {
+              storyId: buildSavedStoryId(story),
+              title: story.title ?? undefined,
+              source: story.source ?? undefined,
+              url: story.url ?? undefined,
+              category: story.category ?? undefined,
+            }
+
+      const key = buildSavedStoryId(storyPayload)
 
       if (!key) {
         return false
       }
 
-      const removed = await removeSavedStory(piUserId, key)
+      const removed = await removeSavedStory(piUserId, storyPayload)
 
       if (removed) {
         setSavedStories((prev) => prev.filter((item) => getMatchKey(item) !== key))
@@ -127,7 +135,13 @@ export function useSavedStories(piUserId: string | null | undefined) {
       const key = buildSavedStoryId(story)
 
       if (savedKeys.has(key)) {
-        await deleteSavedStory(key)
+        await deleteSavedStory({
+          storyId: key,
+          title: story.title ?? undefined,
+          source: story.source ?? undefined,
+          url: story.url ?? undefined,
+          category: story.category ?? undefined,
+        })
         return false
       }
 

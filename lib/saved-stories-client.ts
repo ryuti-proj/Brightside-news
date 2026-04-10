@@ -4,6 +4,16 @@ import type { SavedStory, SaveStoryInput } from "@/types/user-data"
 
 const BASE_URL = "/api/saved-stories"
 
+type RemoveSavedStoryInput =
+  | string
+  | {
+      storyId?: string | null
+      title?: string | null
+      source?: string | null
+      url?: string | null
+      category?: string | null
+    }
+
 async function parseJsonSafe(response: Response) {
   const text = await response.text()
 
@@ -57,7 +67,10 @@ export async function saveStory(piUserId: string, story: SaveStoryInput): Promis
   return handleResponse<SavedStory>(response)
 }
 
-export async function removeSavedStory(piUserId: string, storyId: string): Promise<boolean> {
+export async function removeSavedStory(
+  piUserId: string,
+  story: RemoveSavedStoryInput
+): Promise<boolean> {
   const response = await fetch(BASE_URL, {
     method: "DELETE",
     headers: {
@@ -65,7 +78,7 @@ export async function removeSavedStory(piUserId: string, storyId: string): Promi
     },
     body: JSON.stringify({
       piUserId,
-      storyId,
+      ...(typeof story === "string" ? { storyId: story } : story),
     }),
   })
 

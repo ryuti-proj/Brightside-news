@@ -1,13 +1,35 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
   getSavedStoriesByUserId,
-  isStorySaved,
   removeSavedStoryForUser,
   saveStoryForUser,
 } from "@/lib/user-data-store"
 
 function normalize(value: string | null | undefined) {
   return (value || "").trim()
+}
+
+function normalizeLower(value: string | null | undefined) {
+  return normalize(value).toLowerCase()
+}
+
+function buildSavedStoryId(story: {
+  storyId?: string | null
+  title?: string | null
+  source?: string | null
+  url?: string | null
+  category?: string | null
+}) {
+  const normalizedUrl = normalizeLower(story.url)
+  const normalizedTitle = normalizeLower(story.title)
+  const normalizedSource = normalizeLower(story.source)
+  const normalizedCategory = normalizeLower(story.category)
+
+  if (normalizedUrl) {
+    return `url:${normalizedUrl}`
+  }
+
+  return `meta:${normalizedTitle}|${normalizedSource}|${normalizedCategory}`
 }
 
 export async function GET(request: NextRequest) {
@@ -38,7 +60,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing piUserId or story" }, { status: 400 })
     }
 
-    const savedStory = await saveStoryForUser(piUserId, story)
+    const savedStory = await saveStoryForUser(piUserId, {
+      ...story,
+      storyId: buildSavedStoryId(story),
+    })
 
     return NextResponse.json(savedStory)
   } catch (error) {
@@ -51,10 +76,15 @@ export async function DELETE(request: NextRequest) {
   try {
     const body = await request.json()
     const piUserId = normalize(body?.piUserId)
-    const storyId = normalize(body?.storyId)
 
-    if (!piUserId || !storyId) {
-      return NextResponse.json({ error: "Missing piUserId or storyId" }, { status: 400 })
+    if (!piUserId) {
+      return NextResponse.json({ error: "Missing piUserId" }, { status: 400 })
+    }
+
+    const storyId = normalize(body?.storyId) || buildSavedStoryId(body ?? {})
+
+    if (!storyId) {
+      return NextResponse.json({ error: "Missing story identifier" }, { status: 400 })
     }
 
     const removed = await removeSavedStoryForUser(piUserId, storyId)
