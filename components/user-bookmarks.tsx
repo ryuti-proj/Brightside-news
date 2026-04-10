@@ -61,11 +61,11 @@ export function UserBookmarks() {
     })
   }, [savedStories, searchTerm, selectedFolder])
 
-  const handleRemoveBookmark = async (storyId: string) => {
+  const handleRemoveBookmark = async (bookmark: (typeof savedStories)[number]) => {
     if (!confirm("Remove this story from your bookmarks?")) return
 
     try {
-      await deleteSavedStory(storyId)
+      await deleteSavedStory(bookmark)
     } catch {
       alert("Could not remove saved story. Please try again.")
     }
@@ -149,7 +149,7 @@ export function UserBookmarks() {
                   size="sm"
                   variant="destructive"
                   className="absolute top-2 right-2 w-8 h-8 p-0 bg-red-500/80 hover:bg-red-600"
-                  onClick={() => handleRemoveBookmark(bookmark.storyId)}
+                  onClick={() => handleRemoveBookmark(bookmark)}
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>

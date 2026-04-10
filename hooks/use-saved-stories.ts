@@ -2,98 +2,55 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { SavedStory, SaveStoryInput } from "@/types/user-data"
-import {
-  checkStorySaved,
-  createStoryKey,
-  fetchSavedStories,
-  removeSavedStory,
-  saveStory,
-} from "@/lib/saved-stories-client"
+import { fetchSavedStories, removeSavedStory, saveStory } from "@/lib/saved-stories-client"
 
-function getStorageKey(piUserId: string) {
-  return `brightside-saved-stories:${piUserId}`
+function normalizeSavedValue(value: string | null | undefined) {
+  return (value || "").trim().toLowerCase()
 }
 
-function dedupeSavedStories(stories: SavedStory[]) {
-  const deduped = new Map<string, SavedStory>()
+export function buildSavedStoryId(story: Partial<SaveStoryInput>) {
+  const normalizedUrl = normalizeSavedValue(story.url)
+  const normalizedTitle = normalizeSavedValue(story.title)
+  const normalizedSource = normalizeSavedValue(story.source)
+  const normalizedCategory = normalizeSavedValue(story.category)
 
-  for (const story of stories) {
-    const key = createStoryKey(story)
-
-    if (!key) continue
-
-    const existing = deduped.get(key)
-
-    if (!existing) {
-      deduped.set(key, {
-        ...story,
-        storyId: key,
-      })
-      continue
-    }
-
-    const existingSavedAt = new Date(existing.savedAt).getTime()
-    const nextSavedAt = new Date(story.savedAt).getTime()
-
-    if (Number.isNaN(existingSavedAt) || nextSavedAt >= existingSavedAt) {
-      deduped.set(key, {
-        ...existing,
-        ...story,
-        storyId: key,
-      })
-    }
+  if (normalizedUrl) {
+    return `url:${normalizedUrl}`
   }
 
-  return Array.from(deduped.values()).sort(
-    (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
+  return `meta:${normalizedTitle}|${normalizedSource}|${normalizedCategory}`
+}
+
+function buildSavedStoryFingerprint(story: Partial<SaveStoryInput>) {
+  const normalizedStoryId = normalizeSavedValue(story.storyId)
+
+  if (normalizedStoryId.startsWith("url:") || normalizedStoryId.startsWith("meta:")) {
+    return normalizedStoryId
+  }
+
+  return buildSavedStoryId(story)
+}
+
+function findMatchingSavedStory(savedStories: SavedStory[], storyOrId: string | Partial<SaveStoryInput>) {
+  if (typeof storyOrId === "string") {
+    const normalizedStoryId = normalizeSavedValue(storyOrId)
+
+    return (
+      savedStories.find((story) => normalizeSavedValue(story.storyId) === normalizedStoryId) ?? null
+    )
+  }
+
+  const targetFingerprint = buildSavedStoryFingerprint(storyOrId)
+
+  return (
+    savedStories.find((story) => buildSavedStoryFingerprint(story) === targetFingerprint) ?? null
   )
-}
-
-function readSavedStoriesCache(piUserId: string) {
-  if (typeof window === "undefined") return []
-
-  try {
-    const raw = window.localStorage.getItem(getStorageKey(piUserId))
-    if (!raw) return []
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-
-    return dedupeSavedStories(parsed as SavedStory[])
-  } catch {
-    return []
-  }
-}
-
-function writeSavedStoriesCache(piUserId: string, stories: SavedStory[]) {
-  if (typeof window === "undefined") return
-
-  try {
-    window.localStorage.setItem(getStorageKey(piUserId), JSON.stringify(dedupeSavedStories(stories)))
-  } catch {
-    // Ignore storage write issues
-  }
 }
 
 export function useSavedStories(piUserId: string | null | undefined) {
   const [savedStories, setSavedStories] = useState<SavedStory[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isLoaded, setIsLoaded] = useState(false)
-
-  useEffect(() => {
-    if (!piUserId) {
-      setSavedStories([])
-      setIsLoaded(true)
-      return
-    }
-
-    const cachedStories = readSavedStoriesCache(piUserId)
-
-    if (cachedStories.length > 0) {
-      setSavedStories(cachedStories)
-      setIsLoaded(true)
-    }
-  }, [piUserId])
 
   const loadSavedStories = useCallback(async () => {
     if (!piUserId) {
@@ -105,28 +62,9 @@ export function useSavedStories(piUserId: string | null | undefined) {
     setIsLoading(true)
 
     try {
-      const cachedStories = readSavedStoriesCache(piUserId)
-      const backendStories = dedupeSavedStories(await fetchSavedStories(piUserId))
-      const mergedStories = dedupeSavedStories([...backendStories, ...cachedStories])
-
-      setSavedStories(mergedStories)
-      writeSavedStoriesCache(piUserId, mergedStories)
+      const stories = await fetchSavedStories(piUserId)
+      setSavedStories(stories)
       setIsLoaded(true)
-
-      const missingFromBackend = mergedStories.filter((story) => {
-        const key = createStoryKey(story)
-        return key && !backendStories.some((backendStory) => createStoryKey(backendStory) === key)
-      })
-
-      if (missingFromBackend.length > 0) {
-        const restoredStories = await Promise.all(
-          missingFromBackend.map((story) => saveStory(piUserId, story))
-        )
-
-        const nextStories = dedupeSavedStories([...backendStories, ...restoredStories])
-        setSavedStories(nextStories)
-        writeSavedStoriesCache(piUserId, nextStories)
-      }
     } finally {
       setIsLoading(false)
     }
@@ -137,24 +75,14 @@ export function useSavedStories(piUserId: string | null | undefined) {
   }, [loadSavedStories])
 
   const savedStoryIds = useMemo(() => {
-    return new Set(savedStories.map((story) => createStoryKey(story)).filter(Boolean))
+    return new Set(savedStories.map((story) => story.storyId))
   }, [savedStories])
 
   const isSaved = useCallback(
-    (storyId: string) => {
-      const canonicalStoryId = createStoryKey({ storyId }) || storyId
-      return savedStoryIds.has(canonicalStoryId)
+    (storyOrId: string | Partial<SaveStoryInput>) => {
+      return Boolean(findMatchingSavedStory(savedStories, storyOrId))
     },
-    [savedStoryIds]
-  )
-
-  const refreshSavedState = useCallback(
-    async (storyId: string) => {
-      if (!piUserId) return false
-      const canonicalStoryId = createStoryKey({ storyId }) || storyId
-      return checkStorySaved(piUserId, canonicalStoryId)
-    },
-    [piUserId]
+    [savedStories]
   )
 
   const addSavedStory = useCallback(
@@ -163,25 +91,20 @@ export function useSavedStories(piUserId: string | null | undefined) {
         throw new Error("User is not signed in.")
       }
 
-      const canonicalStoryId = createStoryKey(story)
-
-      if (!canonicalStoryId) {
-        throw new Error("Story is missing a stable identifier.")
+      const normalizedStory: SaveStoryInput = {
+        ...story,
+        storyId: buildSavedStoryId(story),
       }
 
-      const saved = await saveStory(piUserId, {
-        ...story,
-        storyId: canonicalStoryId,
-      })
+      const saved = await saveStory(piUserId, normalizedStory)
 
       setSavedStories((current) => {
-        const nextStories = dedupeSavedStories([
-          saved,
-          ...current.filter((item) => createStoryKey(item) !== canonicalStoryId),
-        ])
+        const existing = findMatchingSavedStory(current, normalizedStory)
+        const filtered = existing
+          ? current.filter((item) => item.id !== existing.id)
+          : current.filter((item) => item.storyId !== saved.storyId)
 
-        writeSavedStoriesCache(piUserId, nextStories)
-        return nextStories
+        return [saved, ...filtered]
       })
 
       return saved
@@ -190,47 +113,52 @@ export function useSavedStories(piUserId: string | null | undefined) {
   )
 
   const deleteSavedStory = useCallback(
-    async (storyId: string) => {
+    async (storyOrId: string | Partial<SaveStoryInput> | SavedStory) => {
       if (!piUserId) {
         throw new Error("User is not signed in.")
       }
 
-      const canonicalStoryId = createStoryKey({ storyId }) || storyId
-      const removed = await removeSavedStory(piUserId, canonicalStoryId)
+      const existing = findMatchingSavedStory(savedStories, storyOrId)
+      const storyIdToDelete = typeof storyOrId === "string" ? storyOrId : existing?.storyId || storyOrId.storyId
+
+      if (!storyIdToDelete) {
+        return false
+      }
+
+      const removed = await removeSavedStory(piUserId, storyIdToDelete)
 
       if (removed) {
         setSavedStories((current) => {
-          const nextStories = current.filter((item) => createStoryKey(item) !== canonicalStoryId)
-          writeSavedStoriesCache(piUserId, nextStories)
-          return nextStories
+          const matched = findMatchingSavedStory(current, storyOrId)
+
+          if (matched) {
+            return current.filter((item) => item.id !== matched.id)
+          }
+
+          return current.filter((item) => item.storyId !== storyIdToDelete)
         })
+      } else {
+        await loadSavedStories()
       }
 
       return removed
     },
-    [piUserId]
+    [loadSavedStories, piUserId, savedStories]
   )
 
   const toggleSavedStory = useCallback(
     async (story: SaveStoryInput) => {
-      const canonicalStoryId = createStoryKey(story)
+      const existing = findMatchingSavedStory(savedStories, story)
 
-      if (!canonicalStoryId) {
-        throw new Error("Story is missing a stable identifier.")
-      }
-
-      if (isSaved(canonicalStoryId)) {
-        await deleteSavedStory(canonicalStoryId)
+      if (existing) {
+        await deleteSavedStory(existing)
         return false
       }
 
-      await addSavedStory({
-        ...story,
-        storyId: canonicalStoryId,
-      })
+      await addSavedStory(story)
       return true
     },
-    [addSavedStory, deleteSavedStory, isSaved]
+    [addSavedStory, deleteSavedStory, savedStories]
   )
 
   return {
@@ -240,7 +168,6 @@ export function useSavedStories(piUserId: string | null | undefined) {
     isLoaded,
     isSaved,
     loadSavedStories,
-    refreshSavedState,
     addSavedStory,
     deleteSavedStory,
     toggleSavedStory,
