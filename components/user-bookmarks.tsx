@@ -10,17 +10,36 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Search, Bookmark, Trash2, Heart, Calendar } from "lucide-react"
 
+function normalizePiUserId(value: unknown): string | null {
+  if (typeof value !== "string") return null
+
+  const trimmed = value.trim()
+
+  if (!trimmed) return null
+
+  if (/^pi-[^\s]+$/i.test(trimmed)) {
+    return trimmed.replace(/^pi-/i, "")
+  }
+
+  return trimmed
+}
+
+function getPiUserId(user: unknown): string | null {
+  if (!user || typeof user !== "object") return null
+
+  const authUser = user as Record<string, unknown>
+
+  return (
+    normalizePiUserId(authUser.piUserId) ||
+    normalizePiUserId(authUser.uid) ||
+    normalizePiUserId(authUser.userId) ||
+    normalizePiUserId(authUser.id)
+  )
+}
+
 export function UserBookmarks() {
   const { user } = useAuth()
-  const authUser = user as
-    | {
-        uid?: string
-        id?: string
-        piUserId?: string
-      }
-    | undefined
-
-  const piUserId = authUser?.uid || authUser?.id || authUser?.piUserId || null
+  const piUserId = getPiUserId(user)
 
   const { savedStories, isLoading, deleteSavedStory } = useSavedStories(piUserId)
   const [searchTerm, setSearchTerm] = useState("")

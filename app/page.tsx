@@ -58,18 +58,31 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue
 }
 
+function normalizePiUserId(value: unknown): string | null {
+  if (typeof value !== "string") return null
+
+  const trimmed = value.trim()
+
+  if (!trimmed) return null
+
+  if (/^pi-[^\s]+$/i.test(trimmed)) {
+    return trimmed.replace(/^pi-/i, "")
+  }
+
+  return trimmed
+}
+
 function getPiUserId(user: unknown) {
   if (!user || typeof user !== "object") return null
 
   const authUser = user as Record<string, unknown>
 
-  const candidate =
-    authUser.piUserId ||
-    authUser.uid ||
-    authUser.userId ||
-    authUser.id
-
-  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null
+  return (
+    normalizePiUserId(authUser.piUserId) ||
+    normalizePiUserId(authUser.uid) ||
+    normalizePiUserId(authUser.userId) ||
+    normalizePiUserId(authUser.id)
+  )
 }
 
 function getUserDisplayName(user: unknown) {
@@ -159,9 +172,7 @@ export default function BrightSideNews() {
   }, [isAuthenticated, piUserId, user])
 
   const availableCountries = useMemo(() => {
-    const uniqueCountries = Array.from(
-      new Set(news.map((article) => article.country).filter(Boolean))
-    ).sort()
+    const uniqueCountries = Array.from(new Set(news.map((article) => article.country).filter(Boolean))).sort()
 
     return ["All Countries", ...uniqueCountries]
   }, [news])
@@ -194,19 +205,13 @@ export default function BrightSideNews() {
   const normalizedSelectedContent = useMemo(() => {
     if (!selectedArticle?.content) return ""
 
-    return selectedArticle.content
-      .replace(/\[\+?\d+\s*chars?\]/gi, "")
-      .replace(/\s+\.\.\.\s*$/g, "")
-      .replace(/\s+/g, " ")
-      .trim()
+    return selectedArticle.content.replace(/\[\+?\d+\s*chars?\]/gi, "").replace(/\s+\.\.\.\s*$/g, "").trim()
   }, [selectedArticle])
 
   const normalizedSelectedExcerpt = useMemo(() => {
     if (!selectedArticle?.excerpt) return ""
 
-    return selectedArticle.excerpt
-      .replace(/\s+/g, " ")
-      .trim()
+    return selectedArticle.excerpt.trim()
   }, [selectedArticle])
 
   const shouldShowFullContent = useMemo(() => {
@@ -218,13 +223,15 @@ export default function BrightSideNews() {
 
   const handleLike = useCallback((articleId: string) => {
     setLikedArticles((prev) => {
-      const newSet = new Set(prev)
-      if (newSet.has(articleId)) {
-        newSet.delete(articleId)
+      const next = new Set(prev)
+
+      if (next.has(articleId)) {
+        next.delete(articleId)
       } else {
-        newSet.add(articleId)
+        next.add(articleId)
       }
-      return newSet
+
+      return next
     })
   }, [])
 
@@ -255,14 +262,16 @@ export default function BrightSideNews() {
   )
 
   const handleShare = useCallback((article: NewsArticle) => {
+    const shareUrl = article.url || window.location.href
+
     if (navigator.share) {
-      navigator.share({
+      void navigator.share({
         title: article.title,
         text: article.excerpt,
-        url: article.url || window.location.href,
+        url: shareUrl,
       })
     } else {
-      navigator.clipboard.writeText(`${article.title} - ${article.url || window.location.href}`)
+      void navigator.clipboard.writeText(`${article.title} - ${shareUrl}`)
       alert("Link copied to clipboard!")
     }
   }, [])
@@ -277,8 +286,9 @@ export default function BrightSideNews() {
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true)
-    const newsStreamService = NewsStreamService.getInstance()
+
     try {
+      const newsStreamService = NewsStreamService.getInstance()
       const refreshedArticles = await newsStreamService.refreshStories()
       setNews(refreshedArticles)
       setLastUpdateTime(new Date())
@@ -499,7 +509,7 @@ export default function BrightSideNews() {
         <section className="mb-8">
           <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center">
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
               <Input
                 type="text"
                 placeholder="Search live positive news..."
@@ -551,11 +561,7 @@ export default function BrightSideNews() {
               onClick={handleRefresh}
               disabled={isRefreshing}
             >
-              {isRefreshing ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4 mr-2" />
-              )}
+              {isRefreshing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
               Refresh
             </Button>
           </div>
@@ -691,13 +697,9 @@ export default function BrightSideNews() {
                 </span>
               </div>
 
-              <h1 className="text-3xl font-bold text-gray-800 mb-4 leading-tight">
-                {selectedArticle.title}
-              </h1>
+              <h1 className="text-3xl font-bold text-gray-800 mb-4 leading-tight">{selectedArticle.title}</h1>
 
-              <p className="text-lg text-gray-600 mb-6 leading-relaxed">
-                {selectedArticle.excerpt}
-              </p>
+              <p className="text-lg text-gray-600 mb-6 leading-relaxed">{selectedArticle.excerpt}</p>
 
               {shouldShowFullContent && (
                 <div className="prose max-w-none">

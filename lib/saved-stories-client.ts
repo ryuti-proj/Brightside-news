@@ -20,10 +20,34 @@ type SavedStoryPayload = {
   error?: string
 }
 
+function normalizePiUserId(value: unknown): string | null {
+  if (typeof value !== "string") return null
+
+  const trimmed = value.trim()
+
+  if (!trimmed) return null
+
+  if (/^pi-[^\s]+$/i.test(trimmed)) {
+    return trimmed.replace(/^pi-/i, "")
+  }
+
+  return trimmed
+}
+
+function requirePiUserId(piUserId: string) {
+  const normalizedPiUserId = normalizePiUserId(piUserId)
+
+  if (!normalizedPiUserId) {
+    throw new Error("Missing Pi user ID.")
+  }
+
+  return normalizedPiUserId
+}
+
 function buildAuthHeaders(piUserId: string) {
   return {
     "Content-Type": "application/json",
-    "x-pi-user-id": piUserId,
+    "x-pi-user-id": requirePiUserId(piUserId),
   }
 }
 
@@ -38,7 +62,10 @@ export async function syncUserProfile(input: {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      ...input,
+      piUserId: requirePiUserId(input.piUserId),
+    }),
   })
 
   const data = (await response.json()) as UserPayload
