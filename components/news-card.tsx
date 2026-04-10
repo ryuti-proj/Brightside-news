@@ -13,7 +13,7 @@ interface NewsCardProps {
   onArticleClick: (article: NewsArticle) => void
   onLike: (articleId: string) => void
   onShare: (article: NewsArticle) => void
-  onBookmark: (articleId: string) => void
+  onBookmark: (article: NewsArticle) => void
   isLiked: boolean
   isBookmarked: boolean
 }
@@ -54,7 +54,7 @@ export const NewsCard = memo(function NewsCard({
           className="absolute top-2 right-2 bg-white/80 hover:bg-white"
           onClick={(e) => {
             e.stopPropagation()
-            onBookmark(article.id)
+            onBookmark(article)
           }}
         >
           <Bookmark className={`w-4 h-4 ${isBookmarked ? "fill-sky-600 text-sky-600" : "text-gray-600"}`} />
@@ -75,7 +75,6 @@ export const NewsCard = memo(function NewsCard({
           </div>
         </div>
 
-        {/* Source Attribution */}
         <div className="flex items-center gap-2 mb-3 text-xs text-gray-500">
           <ExternalLink className="w-3 h-3" />
           <span className="truncate">Source: {article.source}</span>

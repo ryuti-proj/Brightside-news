@@ -92,20 +92,19 @@ export default function UserPage() {
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-pink-50 to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       <div className="container mx-auto px-4 py-8">
         <div className="flex flex-col lg:flex-row gap-6">
-          {/* Sidebar Navigation */}
           <div className="lg:w-64 flex-shrink-0">
             <Card className="border-orange-200 dark:border-gray-600 sticky top-8">
               <CardContent className="p-6">
-                {/* User Info */}
-                <div className="text-center mb-6 pb-6 border-b border-gray-200 dark:border-gray-600">
+                <div className="text-center mb-6 pb-6 border-b border-gray-200 dark:border-gray-600 min-w-0">
                   <div className="w-16 h-16 bg-gradient-to-r from-orange-500 to-pink-600 rounded-full flex items-center justify-center text-white text-xl font-bold mx-auto mb-3">
                     {user?.name.charAt(0).toUpperCase()}
                   </div>
                   <h3 className="font-semibold text-gray-800 dark:text-white truncate">{user?.name}</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-300 truncate">{user?.email}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 break-all leading-tight max-w-full">
+                    {user?.email}
+                  </p>
                 </div>
 
-                {/* Navigation Menu */}
                 <nav className="space-y-2">
                   {menuItems.map((item) => {
                     const Icon = item.icon
@@ -126,7 +125,6 @@ export default function UserPage() {
                   })}
                 </nav>
 
-                {/* Back to Home */}
                 <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-600">
                   <Button
                     variant="outline"
@@ -141,7 +139,6 @@ export default function UserPage() {
             </Card>
           </div>
 
-          {/* Main Content */}
           <div className="flex-1 min-w-0">
             <Card className="border-orange-200 dark:border-gray-600 min-h-[600px]">
               <ActiveComponent />

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback } from "react"
+import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -10,6 +11,8 @@ import { NewsCard } from "@/components/news-card"
 import { categoryGroups, getCategoryGroup } from "@/lib/categories"
 import NewsStreamService from "@/lib/news-stream"
 import type { NewsArticle } from "@/lib/news-api"
+import { useSavedStories } from "@/hooks/use-saved-stories"
+import { syncUserProfile } from "@/lib/saved-stories-client"
 import {
   Menu,
   X,
@@ -33,6 +36,7 @@ import {
   ExternalLink,
   Rss,
   Zap,
+  Bookmark,
 } from "lucide-react"
 import { FeaturedCarousel } from "@/components/featured-carousel"
 import { FeaturedCategoriesService } from "@/components/admin-featured-categories"
@@ -54,9 +58,52 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue
 }
 
+function getPiUserId(user: unknown) {
+  if (!user || typeof user !== "object") return null
+
+  const authUser = user as Record<string, unknown>
+
+  const candidate =
+    authUser.piUserId ||
+    authUser.uid ||
+    authUser.userId ||
+    authUser.id
+
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null
+}
+
+function getUserDisplayName(user: unknown) {
+  if (!user || typeof user !== "object") return null
+
+  const authUser = user as Record<string, unknown>
+  const candidate = authUser.name || authUser.displayName || authUser.username
+
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null
+}
+
+function getUserUsername(user: unknown) {
+  if (!user || typeof user !== "object") return null
+
+  const authUser = user as Record<string, unknown>
+  const candidate = authUser.username || authUser.name || authUser.displayName
+
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null
+}
+
+function getUserAvatarUrl(user: unknown) {
+  if (!user || typeof user !== "object") return null
+
+  const authUser = user as Record<string, unknown>
+  const candidate = authUser.avatarUrl || authUser.avatar || authUser.image
+
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null
+}
+
 const ITEMS_PER_PAGE = 12
 
 export default function BrightSideNews() {
+  const { user, isAuthenticated } = useAuth()
+
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState("All")
   const [selectedCountry, setSelectedCountry] = useState("All Countries")
@@ -64,7 +111,6 @@ export default function BrightSideNews() {
   const [isDonationModalOpen, setIsDonationModalOpen] = useState(false)
   const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null)
   const [likedArticles, setLikedArticles] = useState<Set<string>>(new Set())
-  const [bookmarkedArticles, setBookmarkedArticles] = useState<Set<string>>(new Set())
   const [news, setNews] = useState<NewsArticle[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -74,6 +120,9 @@ export default function BrightSideNews() {
   const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date())
 
   const debouncedSearchQuery = useDebounce(searchQuery, 300)
+  const piUserId = useMemo(() => getPiUserId(user), [user])
+
+  const { isSaved, toggleSavedStory } = useSavedStories(piUserId)
 
   useEffect(() => {
     const newsStreamService = NewsStreamService.getInstance()
@@ -97,6 +146,17 @@ export default function BrightSideNews() {
     const service = FeaturedCategoriesService.getInstance()
     setFeaturedCategories(service.getFeaturedCategories())
   }, [])
+
+  useEffect(() => {
+    if (!isAuthenticated || !piUserId) return
+
+    void syncUserProfile({
+      piUserId,
+      username: getUserUsername(user),
+      displayName: getUserDisplayName(user),
+      avatarUrl: getUserAvatarUrl(user),
+    })
+  }, [isAuthenticated, piUserId, user])
 
   const availableCountries = useMemo(() => {
     const uniqueCountries = Array.from(
@@ -168,17 +228,31 @@ export default function BrightSideNews() {
     })
   }, [])
 
-  const handleBookmark = useCallback((articleId: string) => {
-    setBookmarkedArticles((prev) => {
-      const newSet = new Set(prev)
-      if (newSet.has(articleId)) {
-        newSet.delete(articleId)
-      } else {
-        newSet.add(articleId)
+  const handleBookmark = useCallback(
+    async (article: NewsArticle) => {
+      if (!piUserId) {
+        alert("Please sign in to save stories.")
+        return
       }
-      return newSet
-    })
-  }, [])
+
+      try {
+        await toggleSavedStory({
+          storyId: article.id,
+          title: article.title,
+          summary: article.excerpt,
+          imageUrl: article.image || null,
+          source: article.source || null,
+          url: article.url || null,
+          publishedAt: article.publishedAt || null,
+          category: article.category || null,
+        })
+      } catch (error) {
+        console.error("Failed to toggle saved story:", error)
+        alert("Could not update saved stories. Please try again.")
+      }
+    },
+    [piUserId, toggleSavedStory]
+  )
 
   const handleShare = useCallback((article: NewsArticle) => {
     if (navigator.share) {
@@ -527,7 +601,7 @@ export default function BrightSideNews() {
                 onShare={handleShare}
                 onBookmark={handleBookmark}
                 isLiked={likedArticles.has(article.id)}
-                isBookmarked={bookmarkedArticles.has(article.id)}
+                isBookmarked={isSaved(article.id)}
               />
             ))}
           </div>
@@ -661,6 +735,19 @@ export default function BrightSideNews() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => handleBookmark(selectedArticle)}
+                    className="flex items-center gap-2"
+                  >
+                    <Bookmark
+                      className={`w-4 h-4 ${
+                        isSaved(selectedArticle.id) ? "fill-sky-600 text-sky-600" : "text-gray-600"
+                      }`}
+                    />
+                    <span>{isSaved(selectedArticle.id) ? "Saved" : "Save Story"}</span>
+                  </Button>
+
                   {selectedArticle.url && (
                     <Button variant="outline" asChild className="flex items-center gap-2">
                       <a href={selectedArticle.url} target="_blank" rel="noopener noreferrer">
