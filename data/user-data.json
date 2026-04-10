@@ -1,0 +1,28 @@
+{
+  "users": [
+    {
+      "id": "user_65fe2803-7dfa-447d-9044-2ba2da3378a3",
+      "piUserId": "test-user-1",
+      "username": "testuser",
+      "displayName": "Test User",
+      "avatarUrl": "",
+      "createdAt": "2026-04-10T06:53:59.865Z",
+      "updatedAt": "2026-04-10T06:53:59.865Z"
+    }
+  ],
+  "savedStories": [
+    {
+      "id": "saved_ed909811-4e83-4a6d-b519-7a2bcefc7c11",
+      "userId": "user_65fe2803-7dfa-447d-9044-2ba2da3378a3",
+      "storyId": "story-456",
+      "title": "Another test story",
+      "summary": null,
+      "imageUrl": null,
+      "source": null,
+      "url": null,
+      "publishedAt": null,
+      "category": null,
+      "savedAt": "2026-04-10T07:08:32.758Z"
+    }
+  ]
+}
