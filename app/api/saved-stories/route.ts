@@ -29,6 +29,10 @@ function buildSavedStoryId(story: {
     return `url:${normalizedUrl}`
   }
 
+  if (normalizeLower(story.storyId).startsWith("url:") || normalizeLower(story.storyId).startsWith("meta:")) {
+    return normalizeLower(story.storyId)
+  }
+
   return `meta:${normalizedTitle}|${normalizedSource}|${normalizedCategory}`
 }
 
@@ -42,7 +46,6 @@ export async function GET(request: NextRequest) {
     }
 
     const savedStories = await getSavedStoriesByUserId(piUserId)
-
     return NextResponse.json(savedStories)
   } catch (error) {
     console.error("GET /api/saved-stories failed:", error)
@@ -81,7 +84,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Missing piUserId" }, { status: 400 })
     }
 
-    const storyId = normalize(body?.storyId) || buildSavedStoryId(body ?? {})
+    const storyId = buildSavedStoryId(body ?? {})
 
     if (!storyId) {
       return NextResponse.json({ error: "Missing story identifier" }, { status: 400 })
