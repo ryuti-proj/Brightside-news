@@ -12,7 +12,7 @@ import { categoryGroups, getCategoryGroup } from "@/lib/categories"
 import NewsStreamService from "@/lib/news-stream"
 import type { NewsArticle } from "@/lib/news-api"
 import { useSavedStories } from "@/hooks/use-saved-stories"
-import { syncUserProfile } from "@/lib/saved-stories-client"
+import { createStoryKey, syncUserProfile } from "@/lib/saved-stories-client"
 import {
   Menu,
   X,
@@ -113,6 +113,18 @@ function getUserAvatarUrl(user: unknown) {
 }
 
 const ITEMS_PER_PAGE = 12
+
+
+function getArticleSaveKey(article: NewsArticle) {
+  return createStoryKey({
+    storyId: article.id,
+    title: article.title,
+    source: article.source,
+    url: article.url || null,
+    publishedAt: article.publishedAt || null,
+  })
+}
+
 
 export default function BrightSideNews() {
   const { user, isAuthenticated } = useAuth()
@@ -243,8 +255,14 @@ export default function BrightSideNews() {
       }
 
       try {
+        const storyId = getArticleSaveKey(article)
+
+        if (!storyId) {
+          throw new Error("Story is missing a stable identifier.")
+        }
+
         await toggleSavedStory({
-          storyId: article.id,
+          storyId,
           title: article.title,
           summary: article.excerpt,
           imageUrl: article.image || null,
@@ -607,7 +625,7 @@ export default function BrightSideNews() {
                 onShare={handleShare}
                 onBookmark={handleBookmark}
                 isLiked={likedArticles.has(article.id)}
-                isBookmarked={isSaved(article.id)}
+                isBookmarked={isSaved(getArticleSaveKey(article))}
               />
             ))}
           </div>
@@ -744,10 +762,10 @@ export default function BrightSideNews() {
                   >
                     <Bookmark
                       className={`w-4 h-4 ${
-                        isSaved(selectedArticle.id) ? "fill-sky-600 text-sky-600" : "text-gray-600"
+                        isSaved(getArticleSaveKey(selectedArticle)) ? "fill-sky-600 text-sky-600" : "text-gray-600"
                       }`}
                     />
-                    <span>{isSaved(selectedArticle.id) ? "Saved" : "Save Story"}</span>
+                    <span>{isSaved(getArticleSaveKey(selectedArticle)) ? "Saved" : "Save Story"}</span>
                   </Button>
 
                   {selectedArticle.url && (

@@ -72,14 +72,14 @@ async function readStore(): Promise<StoreShape> {
 
     return {
       users: Array.isArray(parsed.users) ? parsed.users : [],
-      savedStories: Array.isArray(parsed.savedStories) ? parsed.savedStories : [],
+      savedStories: Array.isArray(parsed.savedStories) ? dedupeSavedStories(parsed.savedStories) : [],
     }
   } catch {
     const memoryStore = getMemoryStore()
 
     return {
       users: [...memoryStore.users],
-      savedStories: [...memoryStore.savedStories],
+      savedStories: dedupeSavedStories(memoryStore.savedStories),
     }
   }
 }
@@ -87,7 +87,7 @@ async function readStore(): Promise<StoreShape> {
 async function writeStore(store: StoreShape) {
   const normalizedStore: StoreShape = {
     users: Array.isArray(store.users) ? store.users : [],
-    savedStories: Array.isArray(store.savedStories) ? store.savedStories : [],
+    savedStories: Array.isArray(store.savedStories) ? dedupeSavedStories(store.savedStories) : [],
   }
 
   const dataFile = getDataFilePath()
@@ -105,6 +105,92 @@ async function writeStore(store: StoreShape) {
 
 function createId(prefix: string) {
   return `${prefix}_${crypto.randomUUID()}`
+}
+
+function normalizeStoryValue(value: unknown): string {
+  if (typeof value !== "string") return ""
+
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/[?#].*$/, "")
+    .replace(/\/$/, "")
+    .replace(/\s+/g, " ")
+}
+
+function slugifyStoryValue(value: string): string {
+  return normalizeStoryValue(value)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+}
+
+function createCanonicalStoryId(input: {
+  storyId?: string | null
+  title?: string | null
+  source?: string | null
+  url?: string | null
+  publishedAt?: string | null
+}) {
+  const normalizedUrl = normalizeStoryValue(input.url)
+  const normalizedTitle = normalizeStoryValue(input.title)
+  const normalizedSource = normalizeStoryValue(input.source)
+  const normalizedPublishedAt = normalizeStoryValue(input.publishedAt)
+  const normalizedStoryId = normalizeStoryValue(input.storyId)
+
+  if (normalizedUrl) {
+    return `url:${slugifyStoryValue(normalizedUrl)}`
+  }
+
+  if (normalizedTitle && normalizedSource) {
+    const publishedSegment = normalizedPublishedAt ? `:${slugifyStoryValue(normalizedPublishedAt)}` : ""
+    return `meta:${slugifyStoryValue(normalizedSource)}:${slugifyStoryValue(normalizedTitle)}${publishedSegment}`
+  }
+
+  if (normalizedTitle) {
+    return `title:${slugifyStoryValue(normalizedTitle)}`
+  }
+
+  if (normalizedStoryId) {
+    return `id:${slugifyStoryValue(normalizedStoryId)}`
+  }
+
+  return ""
+}
+
+function dedupeSavedStories(stories: SavedStory[]) {
+  const deduped = new Map<string, SavedStory>()
+
+  for (const story of stories) {
+    const key = createCanonicalStoryId(story)
+
+    if (!key) continue
+
+    const nextStory: SavedStory = {
+      ...story,
+      storyId: key,
+    }
+
+    const existing = deduped.get(key)
+
+    if (!existing) {
+      deduped.set(key, nextStory)
+      continue
+    }
+
+    const existingSavedAt = new Date(existing.savedAt).getTime()
+    const nextSavedAt = new Date(nextStory.savedAt).getTime()
+
+    if (Number.isNaN(existingSavedAt) || nextSavedAt >= existingSavedAt) {
+      deduped.set(key, {
+        ...existing,
+        ...nextStory,
+      })
+    }
+  }
+
+  return Array.from(deduped.values())
 }
 
 export async function upsertUser(input: UpsertUserInput): Promise<NewsUser> {
@@ -164,15 +250,24 @@ export async function getSavedStoriesByUserId(userId: string): Promise<SavedStor
 
 export async function isStorySaved(userId: string, storyId: string): Promise<boolean> {
   const store = await readStore()
-  return store.savedStories.some((story) => story.userId === userId && story.storyId === storyId)
+  const canonicalStoryId = createCanonicalStoryId({ storyId })
+
+  return store.savedStories.some(
+    (story) => story.userId === userId && createCanonicalStoryId(story) === canonicalStoryId
+  )
 }
 
 export async function saveStoryForUser(userId: string, input: SaveStoryInput): Promise<SavedStory> {
   const store = await readStore()
   const now = new Date().toISOString()
+  const canonicalStoryId = createCanonicalStoryId(input)
+
+  if (!canonicalStoryId) {
+    throw new Error("Story is missing a stable identifier.")
+  }
 
   const existingIndex = store.savedStories.findIndex(
-    (story) => story.userId === userId && story.storyId === input.storyId
+    (story) => story.userId === userId && createCanonicalStoryId(story) === canonicalStoryId
   )
 
   if (existingIndex >= 0) {
@@ -180,6 +275,7 @@ export async function saveStoryForUser(userId: string, input: SaveStoryInput): P
 
     const updated: SavedStory = {
       ...existing,
+      storyId: canonicalStoryId,
       title: input.title,
       summary: input.summary ?? existing.summary ?? null,
       imageUrl: input.imageUrl ?? existing.imageUrl ?? null,
@@ -198,7 +294,7 @@ export async function saveStoryForUser(userId: string, input: SaveStoryInput): P
   const saved: SavedStory = {
     id: createId("saved"),
     userId,
-    storyId: input.storyId,
+    storyId: canonicalStoryId,
     title: input.title,
     summary: input.summary ?? null,
     imageUrl: input.imageUrl ?? null,
@@ -217,9 +313,10 @@ export async function saveStoryForUser(userId: string, input: SaveStoryInput): P
 export async function removeSavedStoryForUser(userId: string, storyId: string): Promise<boolean> {
   const store = await readStore()
   const before = store.savedStories.length
+  const canonicalStoryId = createCanonicalStoryId({ storyId })
 
   store.savedStories = store.savedStories.filter(
-    (story) => !(story.userId === userId && story.storyId === storyId)
+    (story) => !(story.userId === userId && createCanonicalStoryId(story) === canonicalStoryId)
   )
 
   const changed = store.savedStories.length !== before

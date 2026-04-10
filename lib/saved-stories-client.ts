@@ -34,6 +34,58 @@ function normalizePiUserId(value: unknown): string | null {
   return trimmed
 }
 
+function normalizeStoryValue(value: unknown): string {
+  if (typeof value !== "string") return ""
+
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/[?#].*$/, "")
+    .replace(/\/$/, "")
+    .replace(/\s+/g, " ")
+}
+
+function slugifyStoryValue(value: string): string {
+  return normalizeStoryValue(value)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+}
+
+export function createStoryKey(input: {
+  storyId?: string | null
+  title?: string | null
+  source?: string | null
+  url?: string | null
+  publishedAt?: string | null
+}) {
+  const normalizedUrl = normalizeStoryValue(input.url)
+  const normalizedTitle = normalizeStoryValue(input.title)
+  const normalizedSource = normalizeStoryValue(input.source)
+  const normalizedPublishedAt = normalizeStoryValue(input.publishedAt)
+  const normalizedStoryId = normalizeStoryValue(input.storyId)
+
+  if (normalizedUrl) {
+    return `url:${slugifyStoryValue(normalizedUrl)}`
+  }
+
+  if (normalizedTitle && normalizedSource) {
+    const publishedSegment = normalizedPublishedAt ? `:${slugifyStoryValue(normalizedPublishedAt)}` : ""
+    return `meta:${slugifyStoryValue(normalizedSource)}:${slugifyStoryValue(normalizedTitle)}${publishedSegment}`
+  }
+
+  if (normalizedTitle) {
+    return `title:${slugifyStoryValue(normalizedTitle)}`
+  }
+
+  if (normalizedStoryId) {
+    return `id:${slugifyStoryValue(normalizedStoryId)}`
+  }
+
+  return ""
+}
+
 function requirePiUserId(piUserId: string) {
   const normalizedPiUserId = normalizePiUserId(piUserId)
 
@@ -113,7 +165,10 @@ export async function saveStory(piUserId: string, story: SaveStoryInput) {
   const response = await fetch("/api/saved-stories", {
     method: "POST",
     headers: buildAuthHeaders(piUserId),
-    body: JSON.stringify(story),
+    body: JSON.stringify({
+      ...story,
+      storyId: createStoryKey(story),
+    }),
   })
 
   const data = (await response.json()) as SavedStoryPayload
