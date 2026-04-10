@@ -9,6 +9,7 @@ function normalize(value: string | null | undefined) {
 }
 
 export function buildSavedStoryId(story: Partial<SaveStoryInput>) {
+  const normalizedStoryId = normalize(story.storyId)
   const normalizedUrl = normalize(story.url)
   const normalizedTitle = normalize(story.title)
   const normalizedSource = normalize(story.source)
@@ -16,6 +17,10 @@ export function buildSavedStoryId(story: Partial<SaveStoryInput>) {
 
   if (normalizedUrl) {
     return `url:${normalizedUrl}`
+  }
+
+  if (normalizedStoryId.startsWith("url:") || normalizedStoryId.startsWith("meta:")) {
+    return normalizedStoryId
   }
 
   return `meta:${normalizedTitle}|${normalizedSource}|${normalizedCategory}`
@@ -102,15 +107,15 @@ export function useSavedStories(piUserId: string | null | undefined) {
         throw new Error("No user")
       }
 
-      const storyPayload =
+      const storyPayload: Partial<SaveStoryInput> =
         typeof story === "string"
           ? { storyId: story }
           : {
-              storyId: buildSavedStoryId(story),
-              title: story.title ?? undefined,
-              source: story.source ?? undefined,
-              url: story.url ?? undefined,
-              category: story.category ?? undefined,
+              storyId: story.storyId ?? buildSavedStoryId(story),
+              title: story.title,
+              source: story.source,
+              url: story.url,
+              category: story.category,
             }
 
       const key = buildSavedStoryId(storyPayload)
@@ -137,7 +142,7 @@ export function useSavedStories(piUserId: string | null | undefined) {
       if (savedKeys.has(key)) {
         await deleteSavedStory({
           storyId: key,
-          title: story.title ?? undefined,
+          title: story.title,
           source: story.source ?? undefined,
           url: story.url ?? undefined,
           category: story.category ?? undefined,
@@ -159,9 +164,10 @@ export function useSavedStories(piUserId: string | null | undefined) {
     savedStories,
     isLoading,
     isLoaded,
-    isSaved,
     loadSavedStories,
-    toggleSavedStory,
+    isSaved,
+    addSavedStory,
     deleteSavedStory,
+    toggleSavedStory,
   }
 }
