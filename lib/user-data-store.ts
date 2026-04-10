@@ -8,29 +8,66 @@ type StoreShape = {
   savedStories: SavedStory[]
 }
 
-const DATA_DIR = path.join(process.cwd(), "data")
-const DATA_FILE = path.join(DATA_DIR, "user-data.json")
+type GlobalStore = typeof globalThis & {
+  __BRIGHTSIDE_USER_DATA_STORE__?: StoreShape
+}
 
 const emptyStore: StoreShape = {
   users: [],
   savedStories: [],
 }
 
+const globalStore = globalThis as GlobalStore
+
+function cloneEmptyStore(): StoreShape {
+  return {
+    users: [],
+    savedStories: [],
+  }
+}
+
+function getMemoryStore(): StoreShape {
+  if (!globalStore.__BRIGHTSIDE_USER_DATA_STORE__) {
+    globalStore.__BRIGHTSIDE_USER_DATA_STORE__ = cloneEmptyStore()
+  }
+
+  return globalStore.__BRIGHTSIDE_USER_DATA_STORE__
+}
+
+function getWritableDataDir() {
+  if (process.env.VERCEL) {
+    return path.join("/tmp", "brightside-news-data")
+  }
+
+  return path.join(process.cwd(), "data")
+}
+
+function getDataFilePath() {
+  return path.join(getWritableDataDir(), "user-data.json")
+}
+
 async function ensureStoreFile() {
-  await fs.mkdir(DATA_DIR, { recursive: true })
+  const dataDir = getWritableDataDir()
+  const dataFile = getDataFilePath()
 
   try {
-    await fs.access(DATA_FILE)
+    await fs.mkdir(dataDir, { recursive: true })
+    await fs.access(dataFile)
   } catch {
-    await fs.writeFile(DATA_FILE, JSON.stringify(emptyStore, null, 2), "utf8")
+    try {
+      await fs.writeFile(dataFile, JSON.stringify(emptyStore, null, 2), "utf8")
+    } catch {
+      getMemoryStore()
+    }
   }
 }
 
 async function readStore(): Promise<StoreShape> {
-  await ensureStoreFile()
+  const dataFile = getDataFilePath()
 
   try {
-    const raw = await fs.readFile(DATA_FILE, "utf8")
+    await ensureStoreFile()
+    const raw = await fs.readFile(dataFile, "utf8")
     const parsed = JSON.parse(raw) as Partial<StoreShape>
 
     return {
@@ -38,13 +75,32 @@ async function readStore(): Promise<StoreShape> {
       savedStories: Array.isArray(parsed.savedStories) ? parsed.savedStories : [],
     }
   } catch {
-    return { ...emptyStore }
+    const memoryStore = getMemoryStore()
+
+    return {
+      users: [...memoryStore.users],
+      savedStories: [...memoryStore.savedStories],
+    }
   }
 }
 
 async function writeStore(store: StoreShape) {
-  await ensureStoreFile()
-  await fs.writeFile(DATA_FILE, JSON.stringify(store, null, 2), "utf8")
+  const normalizedStore: StoreShape = {
+    users: Array.isArray(store.users) ? store.users : [],
+    savedStories: Array.isArray(store.savedStories) ? store.savedStories : [],
+  }
+
+  const dataFile = getDataFilePath()
+
+  try {
+    await ensureStoreFile()
+    await fs.writeFile(dataFile, JSON.stringify(normalizedStore, null, 2), "utf8")
+  } catch {
+    globalStore.__BRIGHTSIDE_USER_DATA_STORE__ = {
+      users: [...normalizedStore.users],
+      savedStories: [...normalizedStore.savedStories],
+    }
+  }
 }
 
 function createId(prefix: string) {
