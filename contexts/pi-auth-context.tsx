@@ -126,7 +126,10 @@ const loadPiSDK = (): Promise<void> => {
 
 function requestParentCredentials(): Promise<{
   accessToken: string;
-  appId: string | null;
+  user: {
+    uid: string;
+    username: string;
+  };
 } | null> {
   if (!isInIframe()) {
     return Promise.resolve(null);
@@ -160,9 +163,19 @@ function requestParentCredentials(): Promise<{
 
       const accessToken =
         typeof payload.accessToken === "string" ? payload.accessToken : null;
-      const appId = typeof payload.appId === "string" ? payload.appId : null;
 
-      resolve(accessToken ? { accessToken, appId } : null);
+      const user =
+        typeof payload.user === "object" &&
+        payload.user !== null &&
+        typeof payload.user.uid === "string" &&
+        typeof payload.user.username === "string"
+          ? {
+              uid: payload.user.uid,
+              username: payload.user.username,
+            }
+          : null;
+
+      resolve(accessToken && user ? { accessToken, user } : null);
     };
 
     timeoutId = setTimeout(() => {
@@ -193,34 +206,19 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
 
   const authInFlightRef = useRef(false);
 
-  const authenticateAndLogin = async (
+  const finalizePiLogin = async (
     accessToken: string,
-    appId: string | null
+    user: { uid: string; username: string }
   ): Promise<void> => {
     setAuthMessage("Logging in...");
 
-    const usePreviewEndpoint = Boolean(PI_NETWORK_CONFIG.SANDBOX && appId);
-    const endpoint = usePreviewEndpoint ? "/api/pi/login/preview" : "/api/pi/login";
-
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        pi_auth_token: accessToken,
-        app_id: appId,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data?.error || "Login request failed");
-    }
-
     setPiAccessToken(accessToken);
-    setUserData(data);
+    setUserData({
+      id: user.uid,
+      username: user.username,
+      credits_balance: 0,
+      terms_accepted: true,
+    });
   };
 
   const getErrorMessage = (error: unknown): string => {
@@ -241,10 +239,6 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
       return "Pi Network authentication failed. Please try again.";
     }
 
-    if (errorMessage.includes("login") || errorMessage.includes("request")) {
-      return "Failed to connect to backend server. Please try again later.";
-    }
-
     return `Authentication error: ${errorMessage}`;
   };
 
@@ -262,7 +256,7 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
       throw new Error(DEFAULT_ERROR_MESSAGE);
     }
 
-    await authenticateAndLogin(piAuthResult.accessToken, null);
+    await finalizePiLogin(piAuthResult.accessToken, piAuthResult.user);
   };
 
   const initializePiAndAuthenticate = async () => {
@@ -277,9 +271,9 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
       const parentCredentials = await requestParentCredentials();
 
       if (parentCredentials) {
-        await authenticateAndLogin(
+        await finalizePiLogin(
           parentCredentials.accessToken,
-          parentCredentials.appId
+          parentCredentials.user
         );
       } else {
         setAuthMessage("Loading Pi Network SDK...");
@@ -305,6 +299,8 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
       setAuthMessage(errorMessage);
       setError(errorMessage);
       setIsAuthenticated(false);
+      setPiAccessToken(null);
+      setUserData(null);
     } finally {
       setIsLoading(false);
       authInFlightRef.current = false;
