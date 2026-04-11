@@ -255,7 +255,7 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
     });
 
     setAuthMessage("Authenticating with Pi Network...");
-    const piAuthResult = await window.Pi.authenticate(["username"]);
+    const piAuthResult = await window.Pi.authenticate(["username", "payments"]);
 
     if (!piAuthResult.accessToken) {
       throw new Error(DEFAULT_ERROR_MESSAGE);
