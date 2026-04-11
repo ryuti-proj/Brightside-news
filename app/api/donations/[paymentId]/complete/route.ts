@@ -15,23 +15,34 @@ export async function POST(
     const txid = typeof body?.txid === "string" ? body.txid : null
     const piUserId = typeof body?.piUserId === "string" ? body.piUserId : null
     const username = typeof body?.username === "string" ? body.username : null
+    const piAccessToken = typeof body?.piAccessToken === "string" ? body.piAccessToken : null
     const metadata = body?.metadata && typeof body.metadata === "object" ? body.metadata : null
 
     if (!paymentId || !txid || !Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: "Invalid payment completion request" }, { status: 400 })
     }
 
-    const completeResponse = await fetch(BACKEND_URLS.COMPLETE_PAYMENT(paymentId), {
+    if (!piAccessToken) {
+      return NextResponse.json({ error: "Missing Pi access token" }, { status: 400 })
+    }
+
+    const completeUrl = BACKEND_URLS.COMPLETE_PAYMENT(paymentId)
+    console.log("[DONATION COMPLETE] Calling:", completeUrl)
+
+    const completeResponse = await fetch(completeUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${piAccessToken}`,
       },
       body: JSON.stringify({ txid }),
     })
 
-    if (!completeResponse.ok) {
-      const errorText = await completeResponse.text().catch(() => "")
+    const responseText = await completeResponse.text().catch(() => "")
+    console.log("[DONATION COMPLETE] Status:", completeResponse.status)
+    console.log("[DONATION COMPLETE] Response:", responseText)
 
+    if (!completeResponse.ok) {
       await upsertDonationRecord({
         paymentId,
         txid,
@@ -43,7 +54,13 @@ export async function POST(
         status: "failed",
       })
 
-      return NextResponse.json({ error: errorText || "Failed to complete Pi payment" }, { status: 500 })
+      return NextResponse.json(
+        {
+          error: responseText || "Failed to complete Pi payment",
+          status: completeResponse.status,
+        },
+        { status: 500 }
+      )
     }
 
     const record = await upsertDonationRecord({
@@ -59,6 +76,8 @@ export async function POST(
 
     return NextResponse.json({ success: true, record })
   } catch (error) {
+    console.error("[DONATION COMPLETE] Exception:", error)
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to complete donation" },
       { status: 500 }

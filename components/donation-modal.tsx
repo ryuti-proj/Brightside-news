@@ -86,7 +86,7 @@ function getPiPaymentApi(): PiWithPayments | null {
 
 export function DonationModal({ isOpen, onClose }: DonationModalProps) {
   const { user, isAuthenticated, isPiUser } = useAuth()
-  const { reinitialize } = usePiAuth()
+  const { reinitialize, piAccessToken } = usePiAuth()
 
   const [selectedAmount, setSelectedAmount] = useState<number | null>(1)
   const [customAmount, setCustomAmount] = useState("")
@@ -117,7 +117,10 @@ export function DonationModal({ isOpen, onClose }: DonationModalProps) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        ...body,
+        piAccessToken,
+      }),
     })
 
     const data = await response.json().catch(() => null)
@@ -157,6 +160,12 @@ export function DonationModal({ isOpen, onClose }: DonationModalProps) {
     if (!isValidAmount) {
       setStatus("error")
       setStatusMessage(`Please enter at least ${formatPiAmount(PI_DONATION_MIN)}.`)
+      return
+    }
+
+    if (!piAccessToken) {
+      setStatus("error")
+      setStatusMessage("Missing Pi access token. Please sign out and sign in again with Pi.")
       return
     }
 

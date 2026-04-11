@@ -14,10 +14,15 @@ export async function POST(
     const memo = typeof body?.memo === "string" ? body.memo : "BrightSide News donation"
     const piUserId = typeof body?.piUserId === "string" ? body.piUserId : null
     const username = typeof body?.username === "string" ? body.username : null
+    const piAccessToken = typeof body?.piAccessToken === "string" ? body.piAccessToken : null
     const metadata = body?.metadata && typeof body.metadata === "object" ? body.metadata : null
 
     if (!paymentId || !Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: "Invalid payment approval request" }, { status: 400 })
+    }
+
+    if (!piAccessToken) {
+      return NextResponse.json({ error: "Missing Pi access token" }, { status: 400 })
     }
 
     const approveUrl = BACKEND_URLS.APPROVE_PAYMENT(paymentId)
@@ -27,6 +32,7 @@ export async function POST(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${piAccessToken}`,
       },
       body: JSON.stringify({}),
     })
