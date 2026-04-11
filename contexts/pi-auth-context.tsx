@@ -199,7 +199,8 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
   ): Promise<void> => {
     setAuthMessage("Logging in...");
 
-    const endpoint = appId ? "/api/pi/login/preview" : "/api/pi/login";
+    const usePreviewEndpoint = Boolean(PI_NETWORK_CONFIG.SANDBOX && appId);
+    const endpoint = usePreviewEndpoint ? "/api/pi/login/preview" : "/api/pi/login";
 
     const response = await fetch(endpoint, {
       method: "POST",
