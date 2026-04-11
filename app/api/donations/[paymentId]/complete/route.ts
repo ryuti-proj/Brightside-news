@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { BACKEND_URLS } from "@/lib/system-config"
 import { upsertDonationRecord } from "@/lib/user-data-store"
 
-const PI_BACKEND_SESSION_COOKIE = "brightside-pi-backend-session"
-
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ paymentId: string }> }
@@ -23,32 +21,28 @@ export async function POST(
       return NextResponse.json({ error: "Invalid payment completion request" }, { status: 400 })
     }
 
-    const backendSessionCookie = request.cookies.get(PI_BACKEND_SESSION_COOKIE)?.value
+    const serverApiKey = process.env.PI_SERVER_API_KEY
 
-    if (!backendSessionCookie) {
+    if (!serverApiKey) {
       return NextResponse.json(
-        { error: "Missing Pi backend session. Please sign out and sign in again with Pi." },
-        { status: 401 }
+        { error: "Missing PI_SERVER_API_KEY on server" },
+        { status: 500 }
       )
     }
 
-    const decodedCookie = decodeURIComponent(backendSessionCookie)
     const completeUrl = BACKEND_URLS.COMPLETE_PAYMENT(paymentId)
-
-    console.log("[DONATION COMPLETE] Calling:", completeUrl)
 
     const completeResponse = await fetch(completeUrl, {
       method: "POST",
       headers: {
+        Authorization: `Key ${serverApiKey}`,
         "Content-Type": "application/json",
-        Cookie: decodedCookie,
       },
       body: JSON.stringify({ txid }),
+      cache: "no-store",
     })
 
     const responseText = await completeResponse.text().catch(() => "")
-    console.log("[DONATION COMPLETE] Status:", completeResponse.status)
-    console.log("[DONATION COMPLETE] Response:", responseText)
 
     if (!completeResponse.ok) {
       await upsertDonationRecord({
@@ -67,7 +61,7 @@ export async function POST(
           error: responseText || "Failed to complete Pi payment",
           status: completeResponse.status,
         },
-        { status: 500 }
+        { status: completeResponse.status }
       )
     }
 
