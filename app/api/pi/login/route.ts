@@ -1,66 +1,68 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server"
+import { BACKEND_URLS } from "@/lib/system-config"
 
-type PiMeResponse = {
-  user?: {
-    uid?: string;
-    username?: string;
-  };
-  uid?: string;
-  username?: string;
-};
+const PI_BACKEND_SESSION_COOKIE = "brightside-pi-backend-session"
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const token = body?.pi_auth_token;
+    const body = await request.json()
+    const token = body?.pi_auth_token
 
     if (!token || typeof token !== "string") {
-      return NextResponse.json(
-        { error: "Missing pi_auth_token" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing pi_auth_token" }, { status: 400 })
     }
 
-    const piResponse = await fetch("https://api.minepi.com/v2/me", {
-      method: "GET",
+    const backendResponse = await fetch(BACKEND_URLS.LOGIN, {
+      method: "POST",
       headers: {
-        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        pi_auth_token: token,
+      }),
       cache: "no-store",
-    });
+    })
 
-    const piData = (await piResponse.json()) as PiMeResponse;
+    const backendText = await backendResponse.text()
+    let backendData: unknown = null
 
-    if (!piResponse.ok) {
+    try {
+      backendData = backendText ? JSON.parse(backendText) : null
+    } catch {
+      backendData = backendText
+    }
+
+    if (!backendResponse.ok) {
       return NextResponse.json(
         {
-          error: piData || "Pi verification failed",
+          error:
+            typeof backendData === "object" && backendData && "error" in backendData
+              ? (backendData as { error?: string }).error || "Backend login failed"
+              : "Backend login failed",
         },
-        { status: piResponse.status }
-      );
+        { status: backendResponse.status }
+      )
     }
 
-    const uid = piData?.user?.uid || piData?.uid;
-    const username = piData?.user?.username || piData?.username;
+    const setCookieHeader = backendResponse.headers.get("set-cookie")
 
-    if (!uid || !username) {
-      return NextResponse.json(
-        { error: "Pi verification returned incomplete user data" },
-        { status: 502 }
-      );
+    const response = NextResponse.json(backendData)
+
+    if (setCookieHeader) {
+      response.cookies.set({
+        name: PI_BACKEND_SESSION_COOKIE,
+        value: encodeURIComponent(setCookieHeader),
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+        maxAge: 60 * 60 * 8,
+      })
     }
 
-    return NextResponse.json({
-      id: uid,
-      username,
-      credits_balance: 0,
-      terms_accepted: true,
-    });
+    return response
   } catch (error) {
-    console.error("Pi login route failed:", error);
-    return NextResponse.json(
-      { error: "Pi login route failed" },
-      { status: 500 }
-    );
+    console.error("Pi login route failed:", error)
+    return NextResponse.json({ error: "Pi login route failed" }, { status: 500 })
   }
 }
