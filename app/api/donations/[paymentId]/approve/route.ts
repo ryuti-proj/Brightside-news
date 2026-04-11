@@ -20,7 +20,10 @@ export async function POST(
       return NextResponse.json({ error: "Invalid payment approval request" }, { status: 400 })
     }
 
-    const approveResponse = await fetch(BACKEND_URLS.APPROVE_PAYMENT(paymentId), {
+    const approveUrl = BACKEND_URLS.APPROVE_PAYMENT(paymentId)
+    console.log("[DONATION APPROVE] Calling:", approveUrl)
+
+    const approveResponse = await fetch(approveUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -28,9 +31,11 @@ export async function POST(
       body: JSON.stringify({}),
     })
 
-    if (!approveResponse.ok) {
-      const errorText = await approveResponse.text().catch(() => "")
+    const responseText = await approveResponse.text().catch(() => "")
+    console.log("[DONATION APPROVE] Status:", approveResponse.status)
+    console.log("[DONATION APPROVE] Response:", responseText)
 
+    if (!approveResponse.ok) {
       await upsertDonationRecord({
         paymentId,
         amount,
@@ -41,7 +46,13 @@ export async function POST(
         status: "failed",
       })
 
-      return NextResponse.json({ error: errorText || "Failed to approve Pi payment" }, { status: 500 })
+      return NextResponse.json(
+        {
+          error: responseText || "Failed to approve Pi payment",
+          status: approveResponse.status,
+        },
+        { status: 500 }
+      )
     }
 
     const record = await upsertDonationRecord({
@@ -56,6 +67,8 @@ export async function POST(
 
     return NextResponse.json({ success: true, record })
   } catch (error) {
+    console.error("[DONATION APPROVE] Exception:", error)
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to approve donation" },
       { status: 500 }
