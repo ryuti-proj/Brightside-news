@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { useParams, useRouter } from "next/navigation"
+import { useParams } from "next/navigation"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -79,7 +79,6 @@ function getUserInitials(user: UserDetail) {
 
 export default function AdminUserDetailPage() {
   const params = useParams<{ id: string }>()
-  const router = useRouter()
   const userId = typeof params?.id === "string" ? params.id : ""
 
   const [data, setData] = useState<UserDetailResponse | null>(null)
@@ -93,19 +92,6 @@ export default function AdminUserDetailPage() {
     setError("")
 
     try {
-      const sessionResponse = await fetch("/api/admin/session", {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-      })
-
-      const sessionData = await sessionResponse.json().catch(() => null)
-
-      if (!sessionData?.authenticated) {
-        router.replace("/admin")
-        return
-      }
-
       const response = await fetch(`/api/admin/users/${userId}`, {
         method: "GET",
         credentials: "include",
