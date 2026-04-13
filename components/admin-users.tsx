@@ -179,14 +179,14 @@ export function AdminUsers() {
             <div className="space-y-3">
               {filteredUsers.map((user) => (
                 <div key={user.id} className="p-4 border rounded-lg bg-gray-50">
-                  <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                  <div className="flex flex-col gap-4">
                     <div className="flex items-start gap-4 min-w-0">
-                      <Avatar className="w-12 h-12">
+                      <Avatar className="w-12 h-12 shrink-0">
                         <AvatarFallback className="bg-blue-100 text-blue-700">{getUserInitials(user)}</AvatarFallback>
                       </Avatar>
 
-                      <div className="space-y-2 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap mb-2">
                           <h3 className="font-semibold text-gray-900 truncate">{getUserLabel(user)}</h3>
                           {user.completedDonationCount > 0 && <Badge variant="default">Donor</Badge>}
                           {user.savedCount > 0 && <Badge variant="secondary">Saved stories</Badge>}
@@ -202,7 +202,7 @@ export function AdminUsers() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 xl:min-w-[520px]">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                       <div className="rounded-md border bg-white p-3">
                         <p className="text-xs text-gray-500 mb-1">Saved</p>
                         <p className="font-semibold text-gray-900">{user.savedCount}</p>
