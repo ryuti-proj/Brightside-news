@@ -1,6 +1,7 @@
 import { promises as fs } from "fs"
 import path from "path"
 import crypto from "crypto"
+import { query, withClient } from "@/lib/db"
 import type {
   DonationRecord,
   NewsUser,
@@ -16,106 +17,7 @@ type StoreShape = {
   donations: DonationRecord[]
 }
 
-type GlobalStore = typeof globalThis & {
-  __BRIGHTSIDE_USER_DATA_STORE__?: StoreShape
-}
-
-const emptyStore: StoreShape = {
-  users: [],
-  savedStories: [],
-  donations: [],
-}
-
-const globalStore = globalThis as GlobalStore
-
-function cloneEmptyStore(): StoreShape {
-  return {
-    users: [],
-    savedStories: [],
-    donations: [],
-  }
-}
-
-function getMemoryStore(): StoreShape {
-  if (!globalStore.__BRIGHTSIDE_USER_DATA_STORE__) {
-    globalStore.__BRIGHTSIDE_USER_DATA_STORE__ = cloneEmptyStore()
-  }
-
-  return globalStore.__BRIGHTSIDE_USER_DATA_STORE__
-}
-
-function getWritableDataDir() {
-  if (process.env.VERCEL) {
-    return path.join("/tmp", "brightside-news-data")
-  }
-
-  return path.join(process.cwd(), "data")
-}
-
-function getDataFilePath() {
-  return path.join(getWritableDataDir(), "user-data.json")
-}
-
-async function ensureStoreFile() {
-  const dataDir = getWritableDataDir()
-  const dataFile = getDataFilePath()
-
-  try {
-    await fs.mkdir(dataDir, { recursive: true })
-    await fs.access(dataFile)
-  } catch {
-    try {
-      await fs.writeFile(dataFile, JSON.stringify(emptyStore, null, 2), "utf8")
-    } catch {
-      getMemoryStore()
-    }
-  }
-}
-
-async function readStore(): Promise<StoreShape> {
-  const dataFile = getDataFilePath()
-
-  try {
-    await ensureStoreFile()
-    const raw = await fs.readFile(dataFile, "utf8")
-    const parsed = JSON.parse(raw) as Partial<StoreShape>
-
-    return {
-      users: Array.isArray(parsed.users) ? parsed.users : [],
-      savedStories: Array.isArray(parsed.savedStories) ? parsed.savedStories : [],
-      donations: Array.isArray(parsed.donations) ? parsed.donations : [],
-    }
-  } catch {
-    const memoryStore = getMemoryStore()
-
-    return {
-      users: [...memoryStore.users],
-      savedStories: [...memoryStore.savedStories],
-      donations: [...memoryStore.donations],
-    }
-  }
-}
-
-async function writeStore(store: StoreShape) {
-  const normalizedStore: StoreShape = {
-    users: Array.isArray(store.users) ? store.users : [],
-    savedStories: Array.isArray(store.savedStories) ? store.savedStories : [],
-    donations: Array.isArray(store.donations) ? store.donations : [],
-  }
-
-  const dataFile = getDataFilePath()
-
-  try {
-    await ensureStoreFile()
-    await fs.writeFile(dataFile, JSON.stringify(normalizedStore, null, 2), "utf8")
-  } catch {
-    globalStore.__BRIGHTSIDE_USER_DATA_STORE__ = {
-      users: [...normalizedStore.users],
-      savedStories: [...normalizedStore.savedStories],
-      donations: [...normalizedStore.donations],
-    }
-  }
-}
+let initPromise: Promise<void> | null = null
 
 function createId(prefix: string) {
   return `${prefix}_${crypto.randomUUID()}`
@@ -161,218 +63,401 @@ function dedupeSavedStories(stories: SavedStory[]) {
   })
 }
 
-export async function upsertUser(input: UpsertUserInput): Promise<NewsUser> {
-  const store = await readStore()
-  const now = new Date().toISOString()
+function mapUserRow(row: Record<string, unknown>): NewsUser {
+  return {
+    id: String(row.id),
+    piUserId: String(row.pi_user_id),
+    username: row.username ? String(row.username) : null,
+    displayName: row.display_name ? String(row.display_name) : null,
+    avatarUrl: row.avatar_url ? String(row.avatar_url) : null,
+    createdAt: new Date(String(row.created_at)).toISOString(),
+    updatedAt: new Date(String(row.updated_at)).toISOString(),
+  }
+}
 
-  const existingIndex = store.users.findIndex((user) => user.piUserId === input.piUserId)
+function mapSavedStoryRow(row: Record<string, unknown>): SavedStory {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    storyId: String(row.story_id),
+    title: String(row.title),
+    summary: row.summary ? String(row.summary) : null,
+    imageUrl: row.image_url ? String(row.image_url) : null,
+    source: row.source ? String(row.source) : null,
+    url: row.url ? String(row.url) : null,
+    publishedAt: row.published_at ? new Date(String(row.published_at)).toISOString() : null,
+    category: row.category ? String(row.category) : null,
+    savedAt: new Date(String(row.saved_at)).toISOString(),
+  }
+}
 
-  if (existingIndex >= 0) {
-    const existing = store.users[existingIndex]
+function mapDonationRow(row: Record<string, unknown>): DonationRecord {
+  return {
+    id: String(row.id),
+    paymentId: String(row.payment_id),
+    txid: row.txid ? String(row.txid) : null,
+    piUserId: row.pi_user_id ? String(row.pi_user_id) : null,
+    username: row.username ? String(row.username) : null,
+    amount: Number(row.amount),
+    currency: "PI",
+    memo: String(row.memo),
+    metadata: row.metadata && typeof row.metadata === "object" ? (row.metadata as Record<string, unknown>) : null,
+    status: row.status as DonationRecord["status"],
+    createdAt: new Date(String(row.created_at)).toISOString(),
+    updatedAt: new Date(String(row.updated_at)).toISOString(),
+  }
+}
 
-    const updated: NewsUser = {
-      ...existing,
-      username: input.username ?? existing.username ?? null,
-      displayName: input.displayName ?? existing.displayName ?? null,
-      avatarUrl: input.avatarUrl ?? existing.avatarUrl ?? null,
-      updatedAt: now,
+async function readLegacyStore(): Promise<StoreShape> {
+  const filePath = path.join(process.cwd(), "data", "user-data.json")
+
+  try {
+    const raw = await fs.readFile(filePath, "utf8")
+    const parsed = JSON.parse(raw) as Partial<StoreShape>
+
+    return {
+      users: Array.isArray(parsed.users) ? parsed.users : [],
+      savedStories: Array.isArray(parsed.savedStories) ? parsed.savedStories : [],
+      donations: Array.isArray(parsed.donations) ? parsed.donations : [],
+    }
+  } catch {
+    return {
+      users: [],
+      savedStories: [],
+      donations: [],
+    }
+  }
+}
+
+async function initDb() {
+  await withClient(async (client) => {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        pi_user_id TEXT NOT NULL UNIQUE,
+        username TEXT,
+        display_name TEXT,
+        avatar_url TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `)
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS saved_stories (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        story_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT,
+        image_url TEXT,
+        source TEXT,
+        url TEXT,
+        published_at TIMESTAMPTZ,
+        category TEXT,
+        saved_at TIMESTAMPTZ NOT NULL,
+        UNIQUE (user_id, story_id)
+      )
+    `)
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS donations (
+        id TEXT PRIMARY KEY,
+        payment_id TEXT NOT NULL UNIQUE,
+        txid TEXT,
+        pi_user_id TEXT,
+        username TEXT,
+        amount NUMERIC(18,8) NOT NULL,
+        currency TEXT NOT NULL,
+        memo TEXT NOT NULL,
+        metadata JSONB,
+        status TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `)
+
+    const counts = await Promise.all([
+      client.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM users"),
+      client.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM saved_stories"),
+      client.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM donations"),
+    ])
+
+    const hasData = counts.some((result) => Number(result.rows[0]?.count ?? 0) > 0)
+
+    if (hasData) {
+      return
     }
 
-    store.users[existingIndex] = updated
-    await writeStore(store)
-    return updated
+    const legacy = await readLegacyStore()
+
+    if (!legacy.users.length && !legacy.savedStories.length && !legacy.donations.length) {
+      return
+    }
+
+    await client.query("BEGIN")
+
+    try {
+      for (const user of legacy.users) {
+        await client.query(
+          `
+            INSERT INTO users (id, pi_user_id, username, display_name, avatar_url, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (pi_user_id) DO UPDATE
+            SET username = EXCLUDED.username,
+                display_name = EXCLUDED.display_name,
+                avatar_url = EXCLUDED.avatar_url,
+                updated_at = EXCLUDED.updated_at
+          `,
+          [
+            user.id,
+            user.piUserId,
+            user.username,
+            user.displayName,
+            user.avatarUrl,
+            user.createdAt,
+            user.updatedAt,
+          ]
+        )
+      }
+
+      for (const story of legacy.savedStories) {
+        await client.query(
+          `
+            INSERT INTO saved_stories (
+              id, user_id, story_id, title, summary, image_url, source, url, published_at, category, saved_at
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            ON CONFLICT (user_id, story_id) DO UPDATE
+            SET title = EXCLUDED.title,
+                summary = EXCLUDED.summary,
+                image_url = EXCLUDED.image_url,
+                source = EXCLUDED.source,
+                url = EXCLUDED.url,
+                published_at = EXCLUDED.published_at,
+                category = EXCLUDED.category,
+                saved_at = EXCLUDED.saved_at
+          `,
+          [
+            story.id,
+            story.userId,
+            buildStoryFingerprint(story),
+            story.title,
+            story.summary,
+            story.imageUrl,
+            story.source,
+            story.url,
+            story.publishedAt,
+            story.category,
+            story.savedAt,
+          ]
+        )
+      }
+
+      for (const donation of legacy.donations) {
+        await client.query(
+          `
+            INSERT INTO donations (
+              id, payment_id, txid, pi_user_id, username, amount, currency, memo, metadata, status, created_at, updated_at
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            ON CONFLICT (payment_id) DO UPDATE
+            SET txid = EXCLUDED.txid,
+                pi_user_id = EXCLUDED.pi_user_id,
+                username = EXCLUDED.username,
+                amount = EXCLUDED.amount,
+                currency = EXCLUDED.currency,
+                memo = EXCLUDED.memo,
+                metadata = EXCLUDED.metadata,
+                status = EXCLUDED.status,
+                updated_at = EXCLUDED.updated_at
+          `,
+          [
+            donation.id,
+            donation.paymentId,
+            donation.txid,
+            donation.piUserId,
+            donation.username,
+            donation.amount,
+            donation.currency,
+            donation.memo,
+            donation.metadata ? JSON.stringify(donation.metadata) : null,
+            donation.status,
+            donation.createdAt,
+            donation.updatedAt,
+          ]
+        )
+      }
+
+      await client.query("COMMIT")
+    } catch (error) {
+      await client.query("ROLLBACK")
+      throw error
+    }
+  })
+}
+
+async function ensureDb() {
+  if (!initPromise) {
+    initPromise = initDb().catch((error) => {
+      initPromise = null
+      throw error
+    })
   }
 
-  const created: NewsUser = {
-    id: createId("user"),
-    piUserId: input.piUserId,
-    username: input.username ?? null,
-    displayName: input.displayName ?? null,
-    avatarUrl: input.avatarUrl ?? null,
-    createdAt: now,
-    updatedAt: now,
-  }
+  await initPromise
+}
 
-  store.users.unshift(created)
-  await writeStore(store)
-  return created
+export async function upsertUser(input: UpsertUserInput): Promise<NewsUser> {
+  await ensureDb()
+  const now = new Date().toISOString()
+
+  const result = await query(
+    `
+      INSERT INTO users (id, pi_user_id, username, display_name, avatar_url, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (pi_user_id) DO UPDATE
+      SET username = COALESCE(EXCLUDED.username, users.username),
+          display_name = COALESCE(EXCLUDED.display_name, users.display_name),
+          avatar_url = COALESCE(EXCLUDED.avatar_url, users.avatar_url),
+          updated_at = EXCLUDED.updated_at
+      RETURNING *
+    `,
+    [
+      createId("user"),
+      input.piUserId,
+      input.username ?? null,
+      input.displayName ?? null,
+      input.avatarUrl ?? null,
+      now,
+      now,
+    ]
+  )
+
+  return mapUserRow(result.rows[0] as Record<string, unknown>)
 }
 
 export async function getUserByPiUserId(piUserId: string): Promise<NewsUser | null> {
-  const store = await readStore()
-  return store.users.find((user) => user.piUserId === piUserId) ?? null
+  await ensureDb()
+  const result = await query(`SELECT * FROM users WHERE pi_user_id = $1 LIMIT 1`, [piUserId])
+  return result.rows[0] ? mapUserRow(result.rows[0] as Record<string, unknown>) : null
 }
 
 export async function getUserById(userId: string): Promise<NewsUser | null> {
-  const store = await readStore()
-  return store.users.find((user) => user.id === userId) ?? null
+  await ensureDb()
+  const result = await query(`SELECT * FROM users WHERE id = $1 LIMIT 1`, [userId])
+  return result.rows[0] ? mapUserRow(result.rows[0] as Record<string, unknown>) : null
 }
 
 export async function getSavedStoriesByUserId(userId: string): Promise<SavedStory[]> {
-  const store = await readStore()
-  const userStories = store.savedStories.filter((story) => story.userId === userId)
-  const deduped = dedupeSavedStories(userStories)
-
-  if (deduped.length !== userStories.length) {
-    store.savedStories = [...store.savedStories.filter((story) => story.userId !== userId), ...deduped]
-    await writeStore(store)
-  }
-
-  return deduped
+  await ensureDb()
+  const result = await query(`SELECT * FROM saved_stories WHERE user_id = $1 ORDER BY saved_at DESC`, [userId])
+  return dedupeSavedStories(result.rows.map((row) => mapSavedStoryRow(row as Record<string, unknown>)))
 }
 
 export async function isStorySaved(userId: string, storyId: string): Promise<boolean> {
-  const store = await readStore()
+  await ensureDb()
   const normalizedStoryId = normalize(storyId)
-
-  return store.savedStories.some((story) => {
-    if (story.userId !== userId) return false
-
-    return normalize(story.storyId) === normalizedStoryId || buildStoryFingerprint(story) === normalizedStoryId
-  })
+  const result = await query(
+    `SELECT 1 FROM saved_stories WHERE user_id = $1 AND story_id = $2 LIMIT 1`,
+    [userId, normalizedStoryId]
+  )
+  return (result.rowCount ?? 0) > 0
 }
 
 export async function saveStoryForUser(userId: string, input: SaveStoryInput): Promise<SavedStory> {
-  const store = await readStore()
+  await ensureDb()
   const now = new Date().toISOString()
   const fingerprint = buildStoryFingerprint(input)
 
-  const existingIndex = store.savedStories.findIndex((story) => {
-    if (story.userId !== userId) return false
-
-    return normalize(story.storyId) === normalize(input.storyId) || buildStoryFingerprint(story) === fingerprint
-  })
-
-  if (existingIndex >= 0) {
-    const existing = store.savedStories[existingIndex]
-
-    const updated: SavedStory = {
-      ...existing,
-      storyId: fingerprint,
-      title: input.title,
-      summary: input.summary ?? existing.summary ?? null,
-      imageUrl: input.imageUrl ?? existing.imageUrl ?? null,
-      source: input.source ?? existing.source ?? null,
-      url: input.url ?? existing.url ?? null,
-      publishedAt: input.publishedAt ?? existing.publishedAt ?? null,
-      category: input.category ?? existing.category ?? null,
-      savedAt: now,
-    }
-
-    store.savedStories[existingIndex] = updated
-    store.savedStories = [
-      ...store.savedStories.filter((story, index) => {
-        if (index === existingIndex) return false
-        if (story.userId !== userId) return true
-        return buildStoryFingerprint(story) !== fingerprint
-      }),
-      updated,
-    ]
-
-    await writeStore(store)
-    return updated
-  }
-
-  const saved: SavedStory = {
-    id: createId("saved"),
-    userId,
-    storyId: fingerprint,
-    title: input.title,
-    summary: input.summary ?? null,
-    imageUrl: input.imageUrl ?? null,
-    source: input.source ?? null,
-    url: input.url ?? null,
-    publishedAt: input.publishedAt ?? null,
-    category: input.category ?? null,
-    savedAt: now,
-  }
-
-  store.savedStories.push(saved)
-  store.savedStories = [
-    ...store.savedStories.filter((story, index, arr) => {
-      if (story.userId !== userId) return true
-      const fp = buildStoryFingerprint(story)
-      const firstIndex = arr.findIndex(
-        (candidate) => candidate.userId === userId && buildStoryFingerprint(candidate) === fp
+  const result = await query(
+    `
+      INSERT INTO saved_stories (
+        id, user_id, story_id, title, summary, image_url, source, url, published_at, category, saved_at
       )
-      return firstIndex === index
-    }),
-  ]
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      ON CONFLICT (user_id, story_id) DO UPDATE
+      SET title = EXCLUDED.title,
+          summary = COALESCE(EXCLUDED.summary, saved_stories.summary),
+          image_url = COALESCE(EXCLUDED.image_url, saved_stories.image_url),
+          source = COALESCE(EXCLUDED.source, saved_stories.source),
+          url = COALESCE(EXCLUDED.url, saved_stories.url),
+          published_at = COALESCE(EXCLUDED.published_at, saved_stories.published_at),
+          category = COALESCE(EXCLUDED.category, saved_stories.category),
+          saved_at = EXCLUDED.saved_at
+      RETURNING *
+    `,
+    [
+      createId("saved"),
+      userId,
+      fingerprint,
+      input.title,
+      input.summary ?? null,
+      input.imageUrl ?? null,
+      input.source ?? null,
+      input.url ?? null,
+      input.publishedAt ?? null,
+      input.category ?? null,
+      now,
+    ]
+  )
 
-  await writeStore(store)
-  return saved
+  return mapSavedStoryRow(result.rows[0] as Record<string, unknown>)
 }
 
 export async function removeSavedStoryForUser(userId: string, storyId: string): Promise<boolean> {
-  const store = await readStore()
+  await ensureDb()
   const normalizedStoryId = normalize(storyId)
-  const before = store.savedStories.length
-
-  store.savedStories = store.savedStories.filter((story) => {
-    if (story.userId !== userId) return true
-
-    const matchesByStoryId = normalize(story.storyId) === normalizedStoryId
-    const matchesByFingerprint = buildStoryFingerprint(story) === normalizedStoryId
-
-    return !(matchesByStoryId || matchesByFingerprint)
-  })
-
-  const changed = store.savedStories.length !== before
-
-  if (changed) {
-    await writeStore(store)
-  }
-
-  return changed
+  const result = await query(
+    `DELETE FROM saved_stories WHERE user_id = $1 AND story_id = $2`,
+    [userId, normalizedStoryId]
+  )
+  return (result.rowCount ?? 0) > 0
 }
 
 export async function upsertDonationRecord(input: UpsertDonationInput): Promise<DonationRecord> {
-  const store = await readStore()
+  await ensureDb()
   const now = new Date().toISOString()
 
-  const existingIndex = store.donations.findIndex((record) => record.paymentId === input.paymentId)
+  const result = await query(
+    `
+      INSERT INTO donations (
+        id, payment_id, txid, pi_user_id, username, amount, currency, memo, metadata, status, created_at, updated_at
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      ON CONFLICT (payment_id) DO UPDATE
+      SET txid = COALESCE(EXCLUDED.txid, donations.txid),
+          pi_user_id = COALESCE(EXCLUDED.pi_user_id, donations.pi_user_id),
+          username = COALESCE(EXCLUDED.username, donations.username),
+          amount = EXCLUDED.amount,
+          currency = EXCLUDED.currency,
+          memo = EXCLUDED.memo,
+          metadata = COALESCE(EXCLUDED.metadata, donations.metadata),
+          status = EXCLUDED.status,
+          updated_at = EXCLUDED.updated_at
+      RETURNING *
+    `,
+    [
+      createId("donation"),
+      input.paymentId,
+      input.txid ?? null,
+      input.piUserId ?? null,
+      input.username ?? null,
+      input.amount,
+      "PI",
+      input.memo,
+      input.metadata ? JSON.stringify(input.metadata) : null,
+      input.status,
+      now,
+      now,
+    ]
+  )
 
-  if (existingIndex >= 0) {
-    const existing = store.donations[existingIndex]
-    const updated: DonationRecord = {
-      ...existing,
-      txid: input.txid ?? existing.txid ?? null,
-      piUserId: input.piUserId ?? existing.piUserId ?? null,
-      username: input.username ?? existing.username ?? null,
-      amount: input.amount,
-      currency: "PI",
-      memo: input.memo,
-      metadata: input.metadata ?? existing.metadata ?? null,
-      status: input.status,
-      updatedAt: now,
-    }
-
-    store.donations[existingIndex] = updated
-    await writeStore(store)
-    return updated
-  }
-
-  const created: DonationRecord = {
-    id: createId("donation"),
-    paymentId: input.paymentId,
-    txid: input.txid ?? null,
-    piUserId: input.piUserId ?? null,
-    username: input.username ?? null,
-    amount: input.amount,
-    currency: "PI",
-    memo: input.memo,
-    metadata: input.metadata ?? null,
-    status: input.status,
-    createdAt: now,
-    updatedAt: now,
-  }
-
-  store.donations.unshift(created)
-  await writeStore(store)
-  return created
+  return mapDonationRow(result.rows[0] as Record<string, unknown>)
 }
 
 export async function getDonationRecords(): Promise<DonationRecord[]> {
-  const store = await readStore()
-  return [...store.donations].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+  await ensureDb()
+  const result = await query(`SELECT * FROM donations ORDER BY updated_at DESC`)
+  return result.rows.map((row) => mapDonationRow(row as Record<string, unknown>))
 }

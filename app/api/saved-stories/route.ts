@@ -1,100 +1,50 @@
 import { NextRequest, NextResponse } from "next/server"
-import {
-  getSavedStoriesByUserId,
-  removeSavedStoryForUser,
-  saveStoryForUser,
-} from "@/lib/user-data-store"
-
-function normalize(value: string | null | undefined) {
-  return (value || "").trim()
-}
-
-function normalizeLower(value: string | null | undefined) {
-  return normalize(value).toLowerCase()
-}
-
-function buildSavedStoryId(story: {
-  storyId?: string | null
-  title?: string | null
-  source?: string | null
-  url?: string | null
-  category?: string | null
-}) {
-  const normalizedUrl = normalizeLower(story.url)
-  const normalizedTitle = normalizeLower(story.title)
-  const normalizedSource = normalizeLower(story.source)
-  const normalizedCategory = normalizeLower(story.category)
-
-  if (normalizedUrl) {
-    return `url:${normalizedUrl}`
-  }
-
-  if (normalizeLower(story.storyId).startsWith("url:") || normalizeLower(story.storyId).startsWith("meta:")) {
-    return normalizeLower(story.storyId)
-  }
-
-  return `meta:${normalizedTitle}|${normalizedSource}|${normalizedCategory}`
-}
+import { getUserByPiUserId, getSavedStoriesByUserId, saveStoryForUser } from "@/lib/user-data-store"
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const piUserId = normalize(searchParams.get("piUserId"))
+    const piUserId = request.headers.get("x-pi-user-id")
 
     if (!piUserId) {
-      return NextResponse.json({ error: "Missing piUserId" }, { status: 400 })
+      return NextResponse.json({ error: "Missing user" }, { status: 401 })
     }
 
-    const savedStories = await getSavedStoriesByUserId(piUserId)
-    return NextResponse.json(savedStories)
+    const user = await getUserByPiUserId(piUserId)
+
+    if (!user) {
+      return NextResponse.json({ stories: [] })
+    }
+
+    const stories = await getSavedStoriesByUserId(user.id)
+
+    return NextResponse.json({ stories })
   } catch (error) {
     console.error("GET /api/saved-stories failed:", error)
-    return NextResponse.json({ error: "Failed to fetch saved stories" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to load stories" }, { status: 500 })
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const piUserId = normalize(body?.piUserId)
-    const story = body?.story
+    const piUserId = request.headers.get("x-pi-user-id")
 
-    if (!piUserId || !story) {
-      return NextResponse.json({ error: "Missing piUserId or story" }, { status: 400 })
+    if (!piUserId) {
+      return NextResponse.json({ error: "Missing user" }, { status: 401 })
     }
 
-    const savedStory = await saveStoryForUser(piUserId, {
-      ...story,
-      storyId: buildSavedStoryId(story),
-    })
+    const body = await request.json()
 
-    return NextResponse.json(savedStory)
+    const user = await getUserByPiUserId(piUserId)
+
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+
+    const story = await saveStoryForUser(user.id, body)
+
+    return NextResponse.json({ story })
   } catch (error) {
     console.error("POST /api/saved-stories failed:", error)
     return NextResponse.json({ error: "Failed to save story" }, { status: 500 })
-  }
-}
-
-export async function DELETE(request: NextRequest) {
-  try {
-    const body = await request.json()
-    const piUserId = normalize(body?.piUserId)
-
-    if (!piUserId) {
-      return NextResponse.json({ error: "Missing piUserId" }, { status: 400 })
-    }
-
-    const storyId = buildSavedStoryId(body ?? {})
-
-    if (!storyId) {
-      return NextResponse.json({ error: "Missing story identifier" }, { status: 400 })
-    }
-
-    const removed = await removeSavedStoryForUser(piUserId, storyId)
-
-    return NextResponse.json({ success: removed })
-  } catch (error) {
-    console.error("DELETE /api/saved-stories failed:", error)
-    return NextResponse.json({ error: "Failed to delete story" }, { status: 500 })
   }
 }

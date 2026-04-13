@@ -1,115 +1,110 @@
 "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { useEffect, useMemo, useState } from "react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Users, Search, UserPlus, UserCheck, Mail, Calendar, Activity } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { RefreshCw, Search, Users, Bookmark, Heart, Coins, Calendar, UserRound } from "lucide-react"
+import { formatPiAmount } from "@/lib/donation-settings"
 
-interface User {
-  id: number
-  name: string
-  email: string
-  role: "admin" | "editor" | "user"
-  status: "active" | "inactive" | "banned"
-  joinedAt: string
-  lastActive: string
-  storiesCount: number
-  commentsCount: number
+type AdminUser = {
+  id: string
+  piUserId: string
+  username: string | null
+  displayName: string | null
+  avatarUrl: string | null
+  createdAt: string
+  updatedAt: string
+  savedCount: number
+  donationCount: number
+  completedDonationCount: number
+  completedDonationTotal: number
+  lastDonationAt: string | null
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "—"
+  return new Date(value).toLocaleString()
+}
+
+function getUserLabel(user: AdminUser) {
+  return user.displayName || user.username || "Pi user"
+}
+
+function getUserInitials(user: AdminUser) {
+  const label = getUserLabel(user).trim()
+  if (!label) return "PU"
+
+  const parts = label.split(/\s+/).slice(0, 2)
+  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "PU"
 }
 
 export function AdminUsers() {
-  const [users, setUsers] = useState<User[]>([
-    {
-      id: 1,
-      name: "Sarah Johnson",
-      email: "sarah@example.com",
-      role: "editor",
-      status: "active",
-      joinedAt: "2024-01-10",
-      lastActive: "2 hours ago",
-      storiesCount: 15,
-      commentsCount: 89,
-    },
-    {
-      id: 2,
-      name: "Dr. Michael Chen",
-      email: "michael@example.com",
-      role: "user",
-      status: "active",
-      joinedAt: "2024-01-08",
-      lastActive: "1 day ago",
-      storiesCount: 3,
-      commentsCount: 45,
-    },
-    {
-      id: 3,
-      name: "Emma Rodriguez",
-      email: "emma@example.com",
-      role: "user",
-      status: "inactive",
-      joinedAt: "2024-01-05",
-      lastActive: "1 week ago",
-      storiesCount: 1,
-      commentsCount: 12,
-    },
-    {
-      id: 4,
-      name: "Admin User",
-      email: "admin@brightsidenews.com",
-      role: "admin",
-      status: "active",
-      joinedAt: "2024-01-01",
-      lastActive: "Just now",
-      storiesCount: 25,
-      commentsCount: 156,
-    },
-  ])
-
+  const [users, setUsers] = useState<AdminUser[]>([])
   const [searchQuery, setSearchQuery] = useState("")
-  const [roleFilter, setRoleFilter] = useState("all")
-  const [statusFilter, setStatusFilter] = useState("all")
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState("")
 
-  const filteredUsers = users.filter((user) => {
-    const matchesSearch =
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesRole = roleFilter === "all" || user.role === roleFilter
-    const matchesStatus = statusFilter === "all" || user.status === statusFilter
-    return matchesSearch && matchesRole && matchesStatus
-  })
+  const loadUsers = async () => {
+    setIsLoading(true)
+    setError("")
 
-  const handleUpdateUserStatus = (userId: number, newStatus: User["status"]) => {
-    setUsers(users.map((user) => (user.id === userId ? { ...user, status: newStatus } : user)))
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      })
+
+      const data = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to load users")
+      }
+
+      setUsers(Array.isArray(data?.users) ? data.users : [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load users")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const handleUpdateUserRole = (userId: number, newRole: User["role"]) => {
-    setUsers(users.map((user) => (user.id === userId ? { ...user, role: newRole } : user)))
-  }
+  useEffect(() => {
+    void loadUsers()
+  }, [])
+
+  const filteredUsers = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    if (!query) return users
+
+    return users.filter((user) => {
+      const haystack = [user.displayName, user.username, user.piUserId].filter(Boolean).join(" ").toLowerCase()
+      return haystack.includes(query)
+    })
+  }, [searchQuery, users])
 
   const totalUsers = users.length
-  const activeUsers = users.filter((user) => user.status === "active").length
-  const adminUsers = users.filter((user) => user.role === "admin").length
-  const editorUsers = users.filter((user) => user.role === "editor").length
+  const totalSavedStories = users.reduce((sum, user) => sum + user.savedCount, 0)
+  const totalCompletedDonations = users.reduce((sum, user) => sum + user.completedDonationCount, 0)
+  const totalPiRaised = users.reduce((sum, user) => sum + user.completedDonationTotal, 0)
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">User Management</h2>
-          <p className="text-gray-600">Manage user accounts, roles, and permissions</p>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Users</h2>
+          <p className="text-gray-600">Live user records from Pi sign-ins, saved stories, and donation activity.</p>
         </div>
-        <Button className="bg-blue-600 hover:bg-blue-700">
-          <UserPlus className="w-4 h-4 mr-2" />
-          Invite User
+        <Button variant="outline" onClick={() => void loadUsers()} disabled={isLoading}>
+          <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+          Refresh
         </Button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -117,177 +112,130 @@ export function AdminUsers() {
                 <p className="text-sm text-gray-600">Total Users</p>
                 <p className="text-2xl font-bold">{totalUsers}</p>
               </div>
-              <Users className="w-8 h-8 text-blue-500" />
+              <Users className="w-8 h-8 text-blue-600" />
             </div>
           </CardContent>
         </Card>
+
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Active Users</p>
-                <p className="text-2xl font-bold">{activeUsers}</p>
+                <p className="text-sm text-gray-600">Saved Stories</p>
+                <p className="text-2xl font-bold">{totalSavedStories}</p>
               </div>
-              <UserCheck className="w-8 h-8 text-green-500" />
+              <Bookmark className="w-8 h-8 text-emerald-600" />
             </div>
           </CardContent>
         </Card>
+
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Admins</p>
-                <p className="text-2xl font-bold">{adminUsers}</p>
+                <p className="text-sm text-gray-600">Completed Donations</p>
+                <p className="text-2xl font-bold">{totalCompletedDonations}</p>
               </div>
-              <UserCheck className="w-8 h-8 text-purple-500" />
+              <Heart className="w-8 h-8 text-pink-500" />
             </div>
           </CardContent>
         </Card>
+
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Editors</p>
-                <p className="text-2xl font-bold">{editorUsers}</p>
+                <p className="text-sm text-gray-600">Pi Raised</p>
+                <p className="text-2xl font-bold">{formatPiAmount(totalPiRaised)}</p>
               </div>
-              <UserCheck className="w-8 h-8 text-orange-500" />
+              <Coins className="w-8 h-8 text-purple-600" />
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <Input
-                  placeholder="Search users..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </div>
-            <Select value={roleFilter} onValueChange={setRoleFilter}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="Role" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Roles</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
-                <SelectItem value="editor">Editor</SelectItem>
-                <SelectItem value="user">User</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="inactive">Inactive</SelectItem>
-                <SelectItem value="banned">Banned</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Users List */}
       <Card>
         <CardHeader>
-          <CardTitle>Users ({filteredUsers.length})</CardTitle>
+          <CardTitle>User Directory</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {filteredUsers.map((user) => (
-              <div key={user.id} className="border rounded-lg p-4 hover:bg-gray-50">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <Avatar className="w-12 h-12">
-                      <AvatarFallback className="bg-blue-100 text-blue-700">
-                        {user.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-gray-800">{user.name}</h3>
-                        <Badge
-                          variant={user.role === "admin" ? "default" : user.role === "editor" ? "secondary" : "outline"}
-                        >
-                          {user.role}
-                        </Badge>
-                        <Badge
-                          variant={
-                            user.status === "active"
-                              ? "default"
-                              : user.status === "inactive"
-                                ? "secondary"
-                                : "destructive"
-                          }
-                        >
-                          {user.status}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-4 text-sm text-gray-600">
-                        <div className="flex items-center gap-1">
-                          <Mail className="w-4 h-4" />
-                          {user.email}
+        <CardContent className="space-y-4">
+          <div className="relative max-w-md">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search by name, username or Pi user ID"
+              className="pl-9"
+            />
+          </div>
+
+          {error && <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">{error}</div>}
+
+          {isLoading ? (
+            <p className="text-center text-gray-500 py-8">Loading users...</p>
+          ) : filteredUsers.length === 0 ? (
+            <p className="text-center text-gray-500 py-8">No users found</p>
+          ) : (
+            <div className="space-y-3">
+              {filteredUsers.map((user) => (
+                <div key={user.id} className="p-4 border rounded-lg bg-gray-50">
+                  <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                    <div className="flex items-start gap-4 min-w-0">
+                      <Avatar className="w-12 h-12">
+                        <AvatarFallback className="bg-blue-100 text-blue-700">{getUserInitials(user)}</AvatarFallback>
+                      </Avatar>
+
+                      <div className="space-y-2 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-semibold text-gray-900 truncate">{getUserLabel(user)}</h3>
+                          {user.completedDonationCount > 0 && <Badge variant="default">Donor</Badge>}
+                          {user.savedCount > 0 && <Badge variant="secondary">Saved stories</Badge>}
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Calendar className="w-4 h-4" />
-                          Joined {user.joinedAt}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Activity className="w-4 h-4" />
-                          Last active {user.lastActive}
+
+                        <div className="space-y-1 text-sm text-gray-600 break-all">
+                          <div className="flex items-center gap-2">
+                            <UserRound className="w-4 h-4 shrink-0" />
+                            <span>@{user.username || "unknown"}</span>
+                          </div>
+                          <p>Pi User ID: {user.piUserId}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4 text-xs text-gray-500 mt-1">
-                        <span>{user.storiesCount} stories</span>
-                        <span>{user.commentsCount} comments</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 xl:min-w-[520px]">
+                      <div className="rounded-md border bg-white p-3">
+                        <p className="text-xs text-gray-500 mb-1">Saved</p>
+                        <p className="font-semibold text-gray-900">{user.savedCount}</p>
+                      </div>
+                      <div className="rounded-md border bg-white p-3">
+                        <p className="text-xs text-gray-500 mb-1">Donations</p>
+                        <p className="font-semibold text-gray-900">{user.completedDonationCount}</p>
+                      </div>
+                      <div className="rounded-md border bg-white p-3">
+                        <p className="text-xs text-gray-500 mb-1">Pi given</p>
+                        <p className="font-semibold text-gray-900">{formatPiAmount(user.completedDonationTotal)}</p>
+                      </div>
+                      <div className="rounded-md border bg-white p-3">
+                        <p className="text-xs text-gray-500 mb-1">Joined</p>
+                        <p className="font-semibold text-gray-900 text-sm">{new Date(user.createdAt).toLocaleDateString()}</p>
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Select
-                      value={user.role}
-                      onValueChange={(value: User["role"]) => handleUpdateUserRole(user.id, value)}
-                    >
-                      <SelectTrigger className="w-24">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="user">User</SelectItem>
-                        <SelectItem value="editor">Editor</SelectItem>
-                        <SelectItem value="admin">Admin</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={user.status}
-                      onValueChange={(value: User["status"]) => handleUpdateUserStatus(user.id, value)}
-                    >
-                      <SelectTrigger className="w-24">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="active">Active</SelectItem>
-                        <SelectItem value="inactive">Inactive</SelectItem>
-                        <SelectItem value="banned">Banned</SelectItem>
-                      </SelectContent>
-                    </Select>
+
+                  <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3 text-sm text-gray-600">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 shrink-0" />
+                      <span>Last profile update: {formatDate(user.updatedAt)}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Heart className="w-4 h-4 shrink-0" />
+                      <span>Last donation: {formatDate(user.lastDonationAt)}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
