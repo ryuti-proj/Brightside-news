@@ -1,9 +1,7 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { query } from "@/lib/db"
 
 export const dynamic = "force-dynamic"
-
-const ADMIN_COOKIE_NAME = "brightside-admin-session"
 
 type AdminUserRow = {
   id: string
@@ -20,13 +18,7 @@ type AdminUserRow = {
   last_donation_at: string | Date | null
 }
 
-export async function GET(request: NextRequest) {
-  const cookie = request.cookies.get(ADMIN_COOKIE_NAME)
-
-  if (!cookie?.value) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
+export async function GET() {
   try {
     const result = await query<AdminUserRow>(`
       SELECT
