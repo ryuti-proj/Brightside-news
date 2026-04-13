@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getUserByPiUserId, getSavedStoriesByUserId, saveStoryForUser } from "@/lib/user-data-store"
 
+function toSafeIsoDate(value: unknown): string | null {
+  if (typeof value !== "string") return null
+
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  const timestamp = Date.parse(trimmed)
+  if (Number.isNaN(timestamp)) return null
+
+  return new Date(timestamp).toISOString()
+}
+
 export async function GET(request: NextRequest) {
   try {
     const piUserId = request.headers.get("x-pi-user-id")
@@ -40,7 +52,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    const story = await saveStoryForUser(user.id, body)
+    const story = await saveStoryForUser(user.id, {
+      ...body,
+      publishedAt: toSafeIsoDate(body?.publishedAt),
+    })
 
     return NextResponse.json({ story })
   } catch (error) {

@@ -66,14 +66,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const sendLoginAlert = async (user: User) => {
-    const loginDetails = {
-      device: getDeviceInfo(),
-      location: getLocationInfo(),
-      time: new Date().toLocaleString(),
-    }
-
     try {
-      await emailService.sendLoginAlertEmail(user.email, user.name, loginDetails)
+      await emailService.sendLoginAlertEmail(
+        user.email,
+        user.name,
+        getDeviceInfo(),
+        getLocationInfo()
+      )
     } catch (error) {
       console.warn("Failed to send login alert email", error)
     }
@@ -107,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (result.success && result.user) {
       try {
-        await emailService.sendAccountCreatedEmail(result.user.email, result.user.name)
+        await emailService.sendWelcomeEmail(result.user.email, result.user.name)
       } catch (error) {
         console.warn("Failed to send account created email", error)
       }
@@ -141,7 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (result.success && result.user) {
       try {
-        await emailService.sendAccountCreatedEmail(result.user.email, result.user.name)
+        await emailService.sendWelcomeEmail(result.user.email, result.user.name)
       } catch (error) {
         console.warn("Failed to send Google account email", error)
       }
@@ -166,7 +165,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (result.success && result.user) {
       try {
-        await emailService.sendAccountCreatedEmail(result.user.email, result.user.name)
+        await emailService.sendWelcomeEmail(result.user.email, result.user.name)
       } catch (error) {
         console.warn("Failed to send Facebook account email", error)
       }
@@ -191,7 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (result.success && result.user) {
       try {
-        await emailService.sendAccountCreatedEmail(result.user.email, result.user.name)
+        await emailService.sendWelcomeEmail(result.user.email, result.user.name)
       } catch (error) {
         console.warn("Failed to send Twitter account email", error)
       }
@@ -216,7 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (result.success && result.user) {
       try {
-        await emailService.sendAccountCreatedEmail(result.user.email, result.user.name)
+        await emailService.sendWelcomeEmail(result.user.email, result.user.name)
       } catch (error) {
         console.warn("Failed to send GitHub account email", error)
       }
