@@ -43,48 +43,58 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return data as T
 }
 
+function withUserHeaders(piUserId: string, extraHeaders?: HeadersInit): HeadersInit {
+  return {
+    "Content-Type": "application/json",
+    "x-pi-user-id": piUserId,
+    ...(extraHeaders || {}),
+  }
+}
+
 export async function fetchSavedStories(piUserId: string): Promise<SavedStory[]> {
-  const response = await fetch(`${BASE_URL}?piUserId=${encodeURIComponent(piUserId)}`, {
+  const response = await fetch(BASE_URL, {
     method: "GET",
     cache: "no-store",
+    headers: withUserHeaders(piUserId),
   })
 
-  return handleResponse<SavedStory[]>(response)
+  const data = await handleResponse<{ stories?: SavedStory[] }>(response)
+  return Array.isArray(data?.stories) ? data.stories : []
 }
 
 export async function saveStory(piUserId: string, story: SaveStoryInput): Promise<SavedStory> {
   const response = await fetch(BASE_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      piUserId,
-      story,
-    }),
+    headers: withUserHeaders(piUserId),
+    body: JSON.stringify(story),
   })
 
-  return handleResponse<SavedStory>(response)
+  const data = await handleResponse<{ story: SavedStory }>(response)
+  return data.story
 }
 
 export async function removeSavedStory(
   piUserId: string,
   story: RemoveSavedStoryInput
 ): Promise<boolean> {
-  const response = await fetch(BASE_URL, {
+  const storyId =
+    typeof story === "string"
+      ? story
+      : typeof story?.storyId === "string" && story.storyId.trim()
+        ? story.storyId.trim()
+        : null
+
+  if (!storyId) {
+    throw new Error("storyId is required")
+  }
+
+  const response = await fetch(`${BASE_URL}/${encodeURIComponent(storyId)}`, {
     method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      piUserId,
-      ...(typeof story === "string" ? { storyId: story } : story),
-    }),
+    headers: withUserHeaders(piUserId),
   })
 
-  const data = await handleResponse<{ success?: boolean; removed?: boolean }>(response)
-
-  return Boolean(data?.success ?? data?.removed)
+  const data = await handleResponse<{ ok?: boolean; removed?: boolean }>(response)
+  return Boolean(data?.removed)
 }
 
 export async function syncUserProfile(input: {
