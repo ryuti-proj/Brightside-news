@@ -1,12 +1,13 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { RefreshCw, Search, Users, Bookmark, Heart, Coins, Calendar, UserRound } from "lucide-react"
+import { RefreshCw, Search, Users, Bookmark, Heart, Coins, Calendar, UserRound, ArrowRight } from "lucide-react"
 import { formatPiAmount } from "@/lib/donation-settings"
 
 type AdminUser = {
@@ -222,15 +223,24 @@ export function AdminUsers() {
                     </div>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3 text-sm text-gray-600">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 shrink-0" />
-                      <span>Last profile update: {formatDate(user.updatedAt)}</span>
+                  <div className="mt-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 text-sm text-gray-600 flex-1">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4 shrink-0" />
+                        <span>Last profile update: {formatDate(user.updatedAt)}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Heart className="w-4 h-4 shrink-0" />
+                        <span>Last donation: {formatDate(user.lastDonationAt)}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Heart className="w-4 h-4 shrink-0" />
-                      <span>Last donation: {formatDate(user.lastDonationAt)}</span>
-                    </div>
+
+                    <Button variant="outline" asChild>
+                      <Link href={`/admin/users/${user.id}`}>
+                        View details
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </Link>
+                    </Button>
                   </div>
                 </div>
               ))}
