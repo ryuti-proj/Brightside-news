@@ -3,9 +3,7 @@ import { query } from "@/lib/db"
 
 export const dynamic = "force-dynamic"
 
-// 🔥 IMPORTANT: match your existing admin cookie name
-// your working admin routes use this:
-const ADMIN_COOKIE_NAME = "admin_session"
+const ADMIN_COOKIE_NAME = "brightside-admin-session"
 
 type AdminUserRow = {
   id: string
