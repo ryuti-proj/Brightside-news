@@ -47,19 +47,12 @@ function toIso(value: string | Date | null | undefined) {
   return new Date(value).toISOString()
 }
 
-function getRouteId(request: Request, params?: { id?: string }) {
-  if (params?.id) return params.id
-
-  const parts = new URL(request.url).pathname.split("/").filter(Boolean)
-  return parts[parts.length - 1] || ""
-}
-
 export async function GET(
-  request: Request,
-  context: { params?: { id?: string } }
+  _request: Request,
+  { params }: { params: { id: string } }
 ) {
   try {
-    const id = getRouteId(request, context?.params)
+    const id = params.id
 
     if (!id) {
       return NextResponse.json({ error: "User id is required" }, { status: 400 })
@@ -152,7 +145,7 @@ export async function GET(
       piUserId: row.pi_user_id,
       username: row.username,
       amount: Number(row.amount),
-      currency: row.currency as "PI",
+      currency: row.currency,
       memo: row.memo,
       metadata: row.metadata,
       status: row.status,
