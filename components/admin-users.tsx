@@ -1,7 +1,7 @@
 "use client"
 
-import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { RefreshCw, Search, Users, Bookmark, Heart, Coins, Calendar, UserRound, ArrowRight } from "lucide-react"
 import { formatPiAmount } from "@/lib/donation-settings"
+import { getAdminToken } from "@/lib/admin-client"
 
 type AdminUser = {
   id: string
@@ -53,10 +54,15 @@ export function AdminUsers() {
     setError("")
 
     try {
+      const token = getAdminToken()
+
       const response = await fetch("/api/admin/users", {
         method: "GET",
         credentials: "include",
         cache: "no-store",
+        headers: {
+          "x-admin-token": token || "",
+        },
       })
 
       const data = await response.json().catch(() => null)
@@ -82,7 +88,11 @@ export function AdminUsers() {
     if (!query) return users
 
     return users.filter((user) => {
-      const haystack = [user.displayName, user.username, user.piUserId].filter(Boolean).join(" ").toLowerCase()
+      const haystack = [user.displayName, user.username, user.piUserId]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+
       return haystack.includes(query)
     })
   }, [searchQuery, users])
