@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { query } from "@/lib/db"
+import { requireAdminRequest } from "@/lib/admin-auth"
 
 export const dynamic = "force-dynamic"
 
@@ -18,7 +19,10 @@ type AdminUserRow = {
   last_donation_at: string | Date | null
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const unauthorized = requireAdminRequest(request)
+  if (unauthorized) return unauthorized
+
   try {
     const result = await query<AdminUserRow>(`
       SELECT

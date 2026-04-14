@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { query } from "@/lib/db"
 import { getUserInventorySummary } from "@/lib/inventory-store"
+import { requireAdminRequest } from "@/lib/admin-auth"
 
 export const dynamic = "force-dynamic"
 
@@ -48,32 +49,44 @@ function toIso(value: string | Date | null | undefined) {
   return new Date(value).toISOString()
 }
 
-export async function GET(_request: Request, { params }: { params: { id: string } }) {
-  try {
-    const id = params.id
+async function resolveUser(identifier: string) {
+  const normalized = identifier.trim()
+  const usernameCandidate = normalized.startsWith("@") ? normalized.slice(1) : normalized
 
-    if (!id) {
+  const result = await query<UserRow>(
+    `
+      SELECT
+        id,
+        pi_user_id,
+        username,
+        display_name,
+        avatar_url,
+        created_at,
+        updated_at
+      FROM users
+      WHERE id = $1
+         OR pi_user_id = $1
+         OR LOWER(COALESCE(username, '')) = LOWER($2)
+      LIMIT 1
+    `,
+    [normalized, usernameCandidate]
+  )
+
+  return result.rows[0] ?? null
+}
+
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const unauthorized = requireAdminRequest(request)
+  if (unauthorized) return unauthorized
+
+  try {
+    const identifier = params.id
+
+    if (!identifier) {
       return NextResponse.json({ error: "User id is required" }, { status: 400 })
     }
 
-    const userResult = await query<UserRow>(
-      `
-        SELECT
-          id,
-          pi_user_id,
-          username,
-          display_name,
-          avatar_url,
-          created_at,
-          updated_at
-        FROM users
-        WHERE id = $1
-        LIMIT 1
-      `,
-      [id]
-    )
-
-    const userRow = userResult.rows[0]
+    const userRow = await resolveUser(identifier)
 
     if (!userRow) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
