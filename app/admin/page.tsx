@@ -22,7 +22,6 @@ import {
   BarChart3,
   FileText,
   Users,
-  Clock,
   Heart,
   Tag,
   Database,
@@ -34,6 +33,7 @@ import {
 function AdminLogin({ onLogin }: { onLogin: () => void }) {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
+  const [rememberMe, setRememberMe] = useState(true)
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -50,7 +50,7 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
           "Content-Type": "application/json",
         },
         credentials: "include",
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, rememberMe }),
       })
 
       const data = await response.json().catch(() => null)
@@ -60,7 +60,21 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
         return
       }
 
+      const sessionResponse = await fetch("/api/admin/session", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      })
+
+      const sessionData = await sessionResponse.json().catch(() => null)
+
+      if (!sessionResponse.ok || !sessionData?.authenticated) {
+        setError("Admin session could not be established")
+        return
+      }
+
       onLogin()
+      window.location.replace("/admin")
     } catch {
       setError("Login failed")
     } finally {
@@ -117,7 +131,21 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
               </div>
             </div>
 
-            {error && <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">{error}</div>}
+            <label className="flex items-center gap-3 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+                className="h-4 w-4 accent-blue-600"
+              />
+              <span>Remember me</span>
+            </label>
+
+            {error ? (
+              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
+                {error}
+              </div>
+            ) : null}
 
             <Button
               type="submit"
@@ -166,13 +194,18 @@ export default function AdminPage() {
     void checkAuth()
   }, [])
 
+  const handleLogin = async () => {
+    setIsAuthenticated(true)
+    setIsLoading(false)
+  }
+
   const handleLogout = async () => {
     await fetch("/api/admin/logout", {
       method: "POST",
       credentials: "include",
     }).catch(() => null)
 
-    setIsAuthenticated(false)
+    window.location.replace("/admin")
   }
 
   if (isLoading) {
@@ -187,7 +220,7 @@ export default function AdminPage() {
   }
 
   if (!isAuthenticated) {
-    return <AdminLogin onLogin={() => setIsAuthenticated(true)} />
+    return <AdminLogin onLogin={handleLogin} />
   }
 
   return (

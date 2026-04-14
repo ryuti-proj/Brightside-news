@@ -4,6 +4,10 @@ export const ADMIN_COOKIE_NAME = "brightside-admin-session"
 const DEFAULT_MAX_AGE_SECONDS = 60 * 60 * 8
 const REMEMBER_ME_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 
+function getSameSite() {
+  return process.env.NODE_ENV === "production" ? "none" : "lax"
+}
+
 export function getAdminSessionMaxAgeSeconds(rememberMe?: boolean) {
   return rememberMe ? REMEMBER_ME_MAX_AGE_SECONDS : DEFAULT_MAX_AGE_SECONDS
 }
@@ -26,7 +30,7 @@ export function applyAdminSessionCookie(response: NextResponse, rememberMe = fal
     name: ADMIN_COOKIE_NAME,
     value: `admin:${Date.now()}`,
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: getSameSite(),
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: getAdminSessionMaxAgeSeconds(rememberMe),
@@ -40,7 +44,7 @@ export function clearAdminSessionCookie(response: NextResponse) {
     name: ADMIN_COOKIE_NAME,
     value: "",
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: getSameSite(),
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 0,
