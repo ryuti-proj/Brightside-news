@@ -20,6 +20,7 @@ import {
   Award,
 } from "lucide-react"
 import { formatPiAmount, getDonationStatusTone } from "@/lib/donation-settings"
+import { getAdminToken } from "@/lib/admin-client"
 import type { DonationRecord, SavedStory } from "@/types/user-data"
 
 type UserDetail = {
@@ -60,6 +61,29 @@ type UserDetailResponse = {
     }
     items: ActivityItem[]
   }
+  inventory?: {
+    totals: {
+      avatarsOwned: number
+      badgesOwned: number
+      totalItems: number
+    }
+    equipped: {
+      avatar: { itemKey: string; name: string; imageUrl: string | null } | null
+      badges: { itemKey: string; name: string; icon: string | null }[]
+    }
+    items: Array<{
+      id: string
+      userId: string
+      itemType: "avatar" | "badge"
+      itemKey: string
+      sourceType: string
+      pricePi: number | null
+      equipped: boolean
+      metadata: Record<string, unknown> | null
+      createdAt: string
+      updatedAt: string
+    }>
+  }
 }
 
 function formatDate(value: string | null) {
@@ -93,10 +117,15 @@ export default function AdminUserDetailPage() {
     setError("")
 
     try {
+      const token = getAdminToken()
+
       const response = await fetch(`/api/admin/users/${userId}`, {
         method: "GET",
         credentials: "include",
         cache: "no-store",
+        headers: {
+          "x-admin-token": token || "",
+        },
       })
 
       const payload = await response.json().catch(() => null)
@@ -128,15 +157,18 @@ export default function AdminUserDetailPage() {
   if (error || !data) {
     return (
       <div className="p-6">
-        <Button asChild>
-          <Link href="/admin">Back</Link>
+        <Button variant="ghost" asChild>
+          <Link href="/admin">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back
+          </Link>
         </Button>
-        <p className="text-red-600 mt-4">{error}</p>
+        <p className="text-red-600 mt-4">{error || "User detail could not be loaded."}</p>
       </div>
     )
   }
 
-  const { user, savedStories, donations, activity } = data
+  const { user, savedStories, donations, activity, inventory } = data
 
   return (
     <div className="p-6 space-y-6">
@@ -162,7 +194,6 @@ export default function AdminUserDetailPage() {
         </CardContent>
       </Card>
 
-      {/* NEW: Avatar placeholder */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -170,13 +201,17 @@ export default function AdminUserDetailPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-gray-500">
-            Avatar system coming next (owned avatars, equipped avatar, marketplace).
+          <p className="text-sm text-gray-500 mb-2">
+            Avatar system coming next.
           </p>
+          {inventory?.equipped.avatar ? (
+            <p className="text-sm">Equipped: {inventory.equipped.avatar.name}</p>
+          ) : (
+            <p className="text-sm text-gray-500">No avatar equipped yet.</p>
+          )}
         </CardContent>
       </Card>
 
-      {/* NEW: Badges placeholder */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -184,69 +219,79 @@ export default function AdminUserDetailPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-gray-500">
-            Badge system coming next (earned + purchased badges).
+          <p className="text-sm text-gray-500 mb-2">
+            Badge system coming next.
+          </p>
+          <p className="text-sm">
+            Owned: {inventory?.totals.badgesOwned ?? 0}
           </p>
         </CardContent>
       </Card>
 
-      {/* Activity */}
       <Card>
         <CardHeader>
           <CardTitle>Activity</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {activity.items.slice(0, 10).map((item) => (
-            <div key={item.id} className="border p-3 rounded">
-              <div className="flex justify-between">
-                <span>{item.title}</span>
-                <span className="text-xs">{formatDate(item.timestamp)}</span>
+          {activity.items.length === 0 ? (
+            <p className="text-sm text-gray-500">No activity recorded yet.</p>
+          ) : (
+            activity.items.slice(0, 10).map((item) => (
+              <div key={item.id} className="border p-3 rounded">
+                <div className="flex justify-between gap-3">
+                  <span>{item.title}</span>
+                  <span className="text-xs">{formatDate(item.timestamp)}</span>
+                </div>
+                <p className="text-sm text-gray-500">{item.description}</p>
               </div>
-              <p className="text-sm text-gray-500">{item.description}</p>
-            </div>
-          ))}
+            ))
+          )}
         </CardContent>
       </Card>
 
-      {/* Donations */}
       <Card>
         <CardHeader>
           <CardTitle>Donations</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {donations.map((d) => (
-            <div key={d.id} className="border p-3 rounded">
-              <div className="flex gap-2 items-center">
-                <span>{formatPiAmount(d.amount)}</span>
-                <Badge variant={getDonationStatusTone(d.status)}>
-                  {d.status}
-                </Badge>
+          {donations.length === 0 ? (
+            <p className="text-sm text-gray-500">No donations recorded.</p>
+          ) : (
+            donations.map((d) => (
+              <div key={d.id} className="border p-3 rounded">
+                <div className="flex gap-2 items-center flex-wrap">
+                  <span>{formatPiAmount(d.amount)}</span>
+                  <Badge variant={getDonationStatusTone(d.status)}>{d.status}</Badge>
+                </div>
+                <p className="text-xs mt-1">{formatDate(d.updatedAt)}</p>
               </div>
-              <p className="text-xs">{formatDate(d.updatedAt)}</p>
-            </div>
-          ))}
+            ))
+          )}
         </CardContent>
       </Card>
 
-      {/* Saved stories */}
       <Card>
         <CardHeader>
           <CardTitle>Saved Stories</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {savedStories.map((s) => (
-            <div key={s.id} className="border p-3 rounded">
-              <div className="flex justify-between">
-                <span>{s.title}</span>
-                {s.url && (
-                  <a href={s.url} target="_blank">
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
-                )}
+          {savedStories.length === 0 ? (
+            <p className="text-sm text-gray-500">No saved stories yet.</p>
+          ) : (
+            savedStories.map((s) => (
+              <div key={s.id} className="border p-3 rounded">
+                <div className="flex justify-between gap-3">
+                  <span>{s.title}</span>
+                  {s.url ? (
+                    <a href={s.url} target="_blank" rel="noreferrer">
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  ) : null}
+                </div>
+                <p className="text-xs">{formatDate(s.savedAt)}</p>
               </div>
-              <p className="text-xs">{formatDate(s.savedAt)}</p>
-            </div>
-          ))}
+            ))
+          )}
         </CardContent>
       </Card>
     </div>
