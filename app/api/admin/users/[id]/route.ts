@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { query } from "@/lib/db"
+import { getUserInventorySummary } from "@/lib/inventory-store"
 
 export const dynamic = "force-dynamic"
 
@@ -47,10 +48,7 @@ function toIso(value: string | Date | null | undefined) {
   return new Date(value).toISOString()
 }
 
-export async function GET(
-  _request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(_request: Request, { params }: { params: { id: string } }) {
   try {
     const id = params.id
 
@@ -81,48 +79,50 @@ export async function GET(
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    const savedStoriesResult = await query<SavedStoryRow>(
-      `
-        SELECT
-          id,
-          user_id,
-          story_id,
-          title,
-          summary,
-          image_url,
-          source,
-          url,
-          published_at,
-          category,
-          saved_at
-        FROM saved_stories
-        WHERE user_id = $1
-        ORDER BY saved_at DESC
-      `,
-      [userRow.id]
-    )
-
-    const donationsResult = await query<DonationRow>(
-      `
-        SELECT
-          id,
-          payment_id,
-          txid,
-          pi_user_id,
-          username,
-          amount,
-          currency,
-          memo,
-          metadata,
-          status,
-          created_at,
-          updated_at
-        FROM donations
-        WHERE pi_user_id = $1
-        ORDER BY updated_at DESC, created_at DESC
-      `,
-      [userRow.pi_user_id]
-    )
+    const [savedStoriesResult, donationsResult, inventorySummary] = await Promise.all([
+      query<SavedStoryRow>(
+        `
+          SELECT
+            id,
+            user_id,
+            story_id,
+            title,
+            summary,
+            image_url,
+            source,
+            url,
+            published_at,
+            category,
+            saved_at
+          FROM saved_stories
+          WHERE user_id = $1
+          ORDER BY saved_at DESC
+        `,
+        [userRow.id]
+      ),
+      query<DonationRow>(
+        `
+          SELECT
+            id,
+            payment_id,
+            txid,
+            pi_user_id,
+            username,
+            amount,
+            currency,
+            memo,
+            metadata,
+            status,
+            created_at,
+            updated_at
+          FROM donations
+          WHERE pi_user_id = $1
+          ORDER BY updated_at DESC, created_at DESC
+        `,
+        [userRow.pi_user_id]
+      ),
+      getUserInventorySummary(userRow.id),
+    ])
 
     const savedStories = savedStoriesResult.rows.map((row) => ({
       id: row.id,
@@ -201,6 +201,7 @@ export async function GET(
         },
         items: recentActivity,
       },
+      inventory: inventorySummary,
     })
   } catch (error) {
     console.error("[ADMIN USER DETAIL] Exception:", error)
