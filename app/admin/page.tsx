@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { getAdminToken } from "@/lib/admin-client"
-import AdminUsers from "@/components/admin-users"
+import { AdminUsers } from "@/components/admin-users"
 
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
