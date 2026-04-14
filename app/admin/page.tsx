@@ -1,40 +1,38 @@
 "use client"
 
-import type React from "react"
-import { useEffect, useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import { BackupPanel } from "@/components/backup-panel"
-import { AdminDonations } from "@/components/admin-donations"
-import { AdminSecurity } from "@/components/admin-security"
-import { AdminStories } from "@/components/admin-stories"
-import { AdminUsers } from "@/components/admin-users"
-import { AdminComments } from "@/components/admin-comments"
-import { AdminCategories } from "@/components/admin-categories"
-import { AdminDashboardStats } from "@/components/admin-dashboard-stats"
-import { AdminFeaturedCategories } from "@/components/admin-featured-categories"
-import {
-  Shield,
-  Eye,
-  EyeOff,
-  BarChart3,
-  FileText,
-  Users,
-  Heart,
-  Tag,
-  Database,
-  MessageSquare,
-  Star,
-  Loader2,
-} from "lucide-react"
+import { useState, useEffect } from "react"
+import { getAdminToken } from "@/lib/admin-client"
+import AdminUsers from "@/components/admin-users"
+
+export default function AdminPage() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    const token = getAdminToken()
+    setIsAuthenticated(!!token)
+  }, [])
+
+  if (isAuthenticated === null) return null
+
+  if (!isAuthenticated) {
+    return <AdminLogin onLogin={() => setIsAuthenticated(true)} />
+  }
+
+  return <AdminDashboard />
+}
+
+function AdminDashboard() {
+  return (
+    <div className="p-4">
+      <AdminUsers />
+    </div>
+  )
+}
 
 function AdminLogin({ onLogin }: { onLogin: () => void }) {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [rememberMe, setRememberMe] = useState(true)
-  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
@@ -60,20 +58,23 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
         return
       }
 
-      const sessionResponse = await fetch("/api/admin/session", {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-      })
-
-      const sessionData = await sessionResponse.json().catch(() => null)
-
-      if (!sessionResponse.ok || !sessionData?.authenticated) {
+      if (!data?.token) {
         setError("Admin session could not be established")
         return
       }
 
+      // ✅ STORE TOKEN FIRST (CRITICAL FIX)
+      if (rememberMe) {
+        localStorage.setItem("admin_token", data.token)
+        sessionStorage.removeItem("admin_token")
+      } else {
+        sessionStorage.setItem("admin_token", data.token)
+        localStorage.removeItem("admin_token")
+      }
+
       onLogin()
+
+      // force reload into authenticated state
       window.location.replace("/admin")
     } catch {
       setError("Login failed")
@@ -83,215 +84,48 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-4">
-      <Card className="w-full max-w-md shadow-xl">
-        <CardHeader className="text-center">
-          <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Shield className="w-8 h-8 text-white" />
-          </div>
-          <CardTitle className="text-2xl font-bold">BrightSide Admin</CardTitle>
-          <p className="text-gray-600">Secure administration panel</p>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter username"
-                required
-                className="mt-1"
-              />
-            </div>
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-md p-6 rounded-2xl border shadow-sm">
+        <h1 className="text-xl font-semibold mb-4">BrightSide Admin</h1>
 
-            <div>
-              <Label htmlFor="password">Password</Label>
-              <div className="relative mt-1">
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter password"
-                  required
-                  className="pr-10"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-0 top-0 h-full px-3"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input
+            type="text"
+            placeholder="Username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className="w-full border rounded p-2"
+          />
 
-            <label className="flex items-center gap-3 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(event) => setRememberMe(event.target.checked)}
-                className="h-4 w-4 accent-blue-600"
-              />
-              <span>Remember me</span>
-            </label>
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full border rounded p-2"
+          />
 
-            {error ? (
-              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
-                {error}
-              </div>
-            ) : null}
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+            />
+            Remember me
+          </label>
 
-            <Button
-              type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700"
-              disabled={isLoading || !username || !password}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Signing in...
-                </>
-              ) : (
-                "Sign In"
-              )}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
+          {error && (
+            <div className="text-red-500 text-sm">{error}</div>
+          )}
 
-export default function AdminPage() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState("overview")
-
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const response = await fetch("/api/admin/session", {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        })
-
-        const data = await response.json().catch(() => null)
-        setIsAuthenticated(Boolean(data?.authenticated))
-      } catch {
-        setIsAuthenticated(false)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    void checkAuth()
-  }, [])
-
-  const handleLogin = async () => {
-    setIsAuthenticated(true)
-    setIsLoading(false)
-  }
-
-  const handleLogout = async () => {
-    await fetch("/api/admin/logout", {
-      method: "POST",
-      credentials: "include",
-    }).catch(() => null)
-
-    window.location.replace("/admin")
-  }
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-        <div className="flex items-center gap-3 text-gray-600">
-          <Loader2 className="w-5 h-5 animate-spin" />
-          <span>Checking admin session...</span>
-        </div>
-      </div>
-    )
-  }
-
-  if (!isAuthenticated) {
-    return <AdminLogin onLogin={handleLogin} />
-  }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      <div className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">BrightSide Admin</h1>
-              <p className="text-gray-600">Manage content, users, security, and Pi donations</p>
-            </div>
-            <Button variant="outline" onClick={handleLogout}>
-              Logout
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className="container mx-auto px-4 py-8">
-        <div className="space-y-6">
-          <div className="flex flex-wrap gap-2">
-            <Button variant={activeTab === "overview" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("overview")}>
-              <BarChart3 className="w-4 h-4" />
-              <span className="hidden sm:inline">Overview</span>
-            </Button>
-            <Button variant={activeTab === "stories" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("stories")}>
-              <FileText className="w-4 h-4" />
-              <span className="hidden sm:inline">Stories</span>
-            </Button>
-            <Button variant={activeTab === "categories" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("categories")}>
-              <Tag className="w-4 h-4" />
-              <span className="hidden sm:inline">Categories</span>
-            </Button>
-            <Button variant={activeTab === "featured" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("featured")}>
-              <Star className="w-4 h-4" />
-              <span className="hidden sm:inline">Featured</span>
-            </Button>
-            <Button variant={activeTab === "users" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("users")}>
-              <Users className="w-4 h-4" />
-              <span className="hidden sm:inline">Users</span>
-            </Button>
-            <Button variant={activeTab === "comments" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("comments")}>
-              <MessageSquare className="w-4 h-4" />
-              <span className="hidden sm:inline">Comments</span>
-            </Button>
-            <Button variant={activeTab === "donations" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("donations")}>
-              <Heart className="w-4 h-4" />
-              <span className="hidden sm:inline">Donations</span>
-            </Button>
-            <Button variant={activeTab === "backup" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("backup")}>
-              <Database className="w-4 h-4" />
-              <span className="hidden sm:inline">Backup</span>
-            </Button>
-            <Button variant={activeTab === "security" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("security")}>
-              <Shield className="w-4 h-4" />
-              <span className="hidden sm:inline">Security</span>
-            </Button>
-          </div>
-
-          <div className="space-y-6">
-            {activeTab === "overview" && <AdminDashboardStats />}
-            {activeTab === "stories" && <AdminStories />}
-            {activeTab === "categories" && <AdminCategories />}
-            {activeTab === "featured" && <AdminFeaturedCategories />}
-            {activeTab === "users" && <AdminUsers />}
-            {activeTab === "comments" && <AdminComments />}
-            {activeTab === "donations" && <AdminDonations />}
-            {activeTab === "backup" && <BackupPanel />}
-            {activeTab === "security" && <AdminSecurity />}
-          </div>
-        </div>
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full bg-blue-600 text-white rounded p-2 disabled:opacity-50"
+          >
+            {isLoading ? "Signing in..." : "Sign In"}
+          </button>
+        </form>
       </div>
     </div>
   )
