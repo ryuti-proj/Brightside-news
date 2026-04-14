@@ -1,73 +1,63 @@
 "use client"
 
-import { FormEvent, useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import type React from "react"
+import { useEffect, useState } from "react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
+import { BackupPanel } from "@/components/backup-panel"
+import { AdminDonations } from "@/components/admin-donations"
+import { AdminSecurity } from "@/components/admin-security"
+import { AdminStories } from "@/components/admin-stories"
+import { AdminUsers } from "@/components/admin-users"
+import { AdminComments } from "@/components/admin-comments"
+import { AdminCategories } from "@/components/admin-categories"
+import { AdminDashboardStats } from "@/components/admin-dashboard-stats"
+import { AdminFeaturedCategories } from "@/components/admin-featured-categories"
+import {
+  Shield,
+  Eye,
+  EyeOff,
+  BarChart3,
+  FileText,
+  Users,
+  Heart,
+  Tag,
+  Database,
+  MessageSquare,
+  Star,
+  Loader2,
+} from "lucide-react"
 
-type SessionResponse = {
-  authenticated: boolean
-  persistent: boolean
-  maxAgeSeconds: number
-  expiresAt: string | null
-}
-
-export default function AdminPage() {
-  const router = useRouter()
-
-  const [isCheckingSession, setIsCheckingSession] = useState(true)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [error, setError] = useState("")
+function AdminLogin({ onLogin }: { onLogin: () => void }) {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [rememberMe, setRememberMe] = useState(true)
+  const [showPassword, setShowPassword] = useState(false)
+  const [error, setError] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
 
-  useEffect(() => {
-    const checkSession = async () => {
-      try {
-        const response = await fetch("/api/admin/session", {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        })
-
-        const data = (await response.json().catch(() => null)) as SessionResponse | null
-
-        if (response.ok && data?.authenticated) {
-          setIsCheckingSession(false)
-          return
-        }
-      } catch {
-        // ignore session check failure and show login form
-      }
-
-      setIsCheckingSession(false)
-    }
-
-    void checkSession()
-  }, [])
-
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setIsSubmitting(true)
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
     setError("")
+    setIsLoading(true)
 
     try {
       const response = await fetch("/api/admin/login", {
         method: "POST",
-        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          username,
-          password,
-          rememberMe,
-        }),
+        credentials: "include",
+        body: JSON.stringify({ username, password, rememberMe }),
       })
 
-      const payload = await response.json().catch(() => null)
+      const data = await response.json().catch(() => null)
 
       if (!response.ok) {
-        throw new Error(payload?.error || "Login failed")
+        setError(data?.error || "Invalid credentials")
+        return
       }
 
       const sessionResponse = await fetch("/api/admin/session", {
@@ -76,93 +66,68 @@ export default function AdminPage() {
         cache: "no-store",
       })
 
-      const sessionPayload = (await sessionResponse.json().catch(() => null)) as SessionResponse | null
+      const sessionData = await sessionResponse.json().catch(() => null)
 
-      if (!sessionResponse.ok || !sessionPayload?.authenticated) {
-        throw new Error("Session could not be established")
+      if (!sessionResponse.ok || !sessionData?.authenticated) {
+        setError("Admin session could not be established")
+        return
       }
 
-      router.refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed")
+      onLogin()
+    } catch {
+      setError("Login failed")
     } finally {
-      setIsSubmitting(false)
+      setIsLoading(false)
     }
-  }
-
-  const handleLogout = async () => {
-    try {
-      await fetch("/api/admin/logout", {
-        method: "POST",
-        credentials: "include",
-      })
-    } finally {
-      router.refresh()
-    }
-  }
-
-  if (isCheckingSession) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center px-4">
-        <div className="w-full max-w-md rounded-2xl border bg-white p-8 shadow-sm">
-          <div className="h-6 w-32 animate-pulse rounded bg-slate-200" />
-        </div>
-      </div>
-    )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 px-4 py-10">
-      <div className="mx-auto max-w-md">
-        <div className="rounded-2xl border bg-white p-8 shadow-xl shadow-slate-200/50">
-          <div className="mb-8 text-center">
-            <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                className="h-11 w-11"
-              >
-                <path d="M12 3l7 4v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V7l7-4z" />
-              </svg>
-            </div>
-            <h1 className="text-4xl font-bold tracking-tight text-slate-900">BrightSide Admin</h1>
-            <p className="mt-3 text-lg text-slate-600">Secure administration panel</p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-4">
+      <Card className="w-full max-w-md shadow-xl">
+        <CardHeader className="text-center">
+          <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Shield className="w-8 h-8 text-white" />
           </div>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <label htmlFor="username" className="block text-sm font-semibold text-slate-900">
-                Username
-              </label>
-              <input
+          <CardTitle className="text-2xl font-bold">BrightSide Admin</CardTitle>
+          <p className="text-gray-600">Secure administration panel</p>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="username">Username</Label>
+              <Input
                 id="username"
                 type="text"
                 value={username}
-                onChange={(event) => setUsername(event.target.value)}
+                onChange={(e) => setUsername(e.target.value)}
                 placeholder="Enter username"
-                autoComplete="username"
-                className="w-full rounded-none border border-slate-900 bg-white px-5 py-4 text-xl text-slate-900 outline-none transition focus:border-blue-600"
                 required
+                className="mt-1"
               />
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="password" className="block text-sm font-semibold text-slate-900">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="Enter password"
-                autoComplete="current-password"
-                className="w-full rounded-none border border-slate-900 bg-white px-5 py-4 text-xl text-slate-900 outline-none transition focus:border-blue-600"
-                required
-              />
+            <div>
+              <Label htmlFor="password">Password</Label>
+              <div className="relative mt-1">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter password"
+                  required
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
             </div>
 
             <label className="flex items-center gap-3 text-sm text-slate-700">
@@ -175,30 +140,167 @@ export default function AdminPage() {
               <span>Remember me</span>
             </label>
 
-            {error ? (
-              <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-                {error}
-              </div>
-            ) : null}
+            {error ? <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">{error}</div> : null}
 
-            <button
+            <Button
               type="submit"
-              disabled={isSubmitting || !username.trim() || !password}
-              className="w-full rounded-none bg-blue-400 px-5 py-4 text-xl font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full bg-blue-600 hover:bg-blue-700"
+              disabled={isLoading || !username || !password}
             >
-              {isSubmitting ? "Signing In..." : "Sign In"}
-            </button>
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                "Sign In"
+              )}
+            </Button>
           </form>
-        </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
 
-        <div className="mt-6 flex justify-center">
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="text-sm text-slate-500 underline underline-offset-4"
-          >
-            Clear admin session
-          </button>
+export default function AdminPage() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState("overview")
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const response = await fetch("/api/admin/session", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        })
+
+        const data = await response.json().catch(() => null)
+        setIsAuthenticated(Boolean(data?.authenticated))
+      } catch {
+        setIsAuthenticated(false)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    void checkAuth()
+  }, [])
+
+  const handleLogin = async () => {
+    setIsAuthenticated(true)
+    setIsLoading(true)
+
+    try {
+      const response = await fetch("/api/admin/session", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      })
+
+      const data = await response.json().catch(() => null)
+      setIsAuthenticated(Boolean(data?.authenticated))
+    } catch {
+      setIsAuthenticated(false)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    await fetch("/api/admin/logout", {
+      method: "POST",
+      credentials: "include",
+    }).catch(() => null)
+
+    setIsAuthenticated(false)
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+        <div className="flex items-center gap-3 text-gray-600">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span>Checking admin session...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <AdminLogin onLogin={handleLogin} />
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      <div className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-10">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">BrightSide Admin</h1>
+              <p className="text-gray-600">Manage content, users, security, and Pi donations</p>
+            </div>
+            <Button variant="outline" onClick={handleLogout}>
+              Logout
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="container mx-auto px-4 py-8">
+        <div className="space-y-6">
+          <div className="flex flex-wrap gap-2">
+            <Button variant={activeTab === "overview" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("overview")}>
+              <BarChart3 className="w-4 h-4" />
+              <span className="hidden sm:inline">Overview</span>
+            </Button>
+            <Button variant={activeTab === "stories" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("stories")}>
+              <FileText className="w-4 h-4" />
+              <span className="hidden sm:inline">Stories</span>
+            </Button>
+            <Button variant={activeTab === "categories" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("categories")}>
+              <Tag className="w-4 h-4" />
+              <span className="hidden sm:inline">Categories</span>
+            </Button>
+            <Button variant={activeTab === "featured" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("featured")}>
+              <Star className="w-4 h-4" />
+              <span className="hidden sm:inline">Featured</span>
+            </Button>
+            <Button variant={activeTab === "users" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("users")}>
+              <Users className="w-4 h-4" />
+              <span className="hidden sm:inline">Users</span>
+            </Button>
+            <Button variant={activeTab === "comments" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("comments")}>
+              <MessageSquare className="w-4 h-4" />
+              <span className="hidden sm:inline">Comments</span>
+            </Button>
+            <Button variant={activeTab === "donations" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("donations")}>
+              <Heart className="w-4 h-4" />
+              <span className="hidden sm:inline">Donations</span>
+            </Button>
+            <Button variant={activeTab === "backup" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("backup")}>
+              <Database className="w-4 h-4" />
+              <span className="hidden sm:inline">Backup</span>
+            </Button>
+            <Button variant={activeTab === "security" ? "default" : "ghost"} className="flex items-center gap-2" onClick={() => setActiveTab("security")}>
+              <Shield className="w-4 h-4" />
+              <span className="hidden sm:inline">Security</span>
+            </Button>
+          </div>
+
+          <div className="space-y-6">
+            {activeTab === "overview" && <AdminDashboardStats />}
+            {activeTab === "stories" && <AdminStories />}
+            {activeTab === "categories" && <AdminCategories />}
+            {activeTab === "featured" && <AdminFeaturedCategories />}
+            {activeTab === "users" && <AdminUsers />}
+            {activeTab === "comments" && <AdminComments />}
+            {activeTab === "donations" && <AdminDonations />}
+            {activeTab === "backup" && <BackupPanel />}
+            {activeTab === "security" && <AdminSecurity />}
+          </div>
         </div>
       </div>
     </div>
