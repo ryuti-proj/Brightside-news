@@ -2,11 +2,14 @@ import crypto from "crypto"
 import { NextRequest, NextResponse } from "next/server"
 
 export const ADMIN_COOKIE_NAME = "brightside-admin-session"
-const DEFAULT_MAX_AGE_SECONDS = 60 * 60 * 24 * 30 // 30 days
+
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8
+const REMEMBER_ME_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 
 type SessionPayload = {
   token: string
   expiresAt: number
+  rememberMe: boolean
 }
 
 function getAdminSessionSecret() {
@@ -49,6 +52,10 @@ function decodePayload(value: string): SessionPayload | null {
       return null
     }
 
+    if (typeof payload.rememberMe !== "boolean") {
+      return null
+    }
+
     if (Date.now() > payload.expiresAt) {
       return null
     }
@@ -59,15 +66,22 @@ function decodePayload(value: string): SessionPayload | null {
   }
 }
 
-export function createAdminSessionCookieValue(maxAgeSeconds = DEFAULT_MAX_AGE_SECONDS) {
+export function getAdminSessionMaxAgeSeconds(rememberMe = false) {
+  return rememberMe ? REMEMBER_ME_MAX_AGE_SECONDS : SESSION_MAX_AGE_SECONDS
+}
+
+export function getAdminRememberMeMaxAgeSeconds() {
+  return REMEMBER_ME_MAX_AGE_SECONDS
+}
+
+export function createAdminSessionCookieValue(rememberMe = false) {
+  const maxAgeSeconds = getAdminSessionMaxAgeSeconds(rememberMe)
+
   return encodePayload({
     token: crypto.randomUUID(),
     expiresAt: Date.now() + maxAgeSeconds * 1000,
+    rememberMe,
   })
-}
-
-export function getAdminSessionMaxAgeSeconds() {
-  return DEFAULT_MAX_AGE_SECONDS
 }
 
 export function getAdminSession(request: NextRequest) {
@@ -80,22 +94,28 @@ export function getAdminSession(request: NextRequest) {
   return decodePayload(cookieValue)
 }
 
-export function isAdminAuthenticated(request: NextRequest) {
+export function hasAdminSession(request: NextRequest) {
   return Boolean(getAdminSession(request))
 }
 
+export function isAdminAuthenticated(request: NextRequest) {
+  return hasAdminSession(request)
+}
+
 export function requireAdminRequest(request: NextRequest) {
-  if (!isAdminAuthenticated(request)) {
+  if (!hasAdminSession(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
   return null
 }
 
-export function applyAdminSessionCookie(response: NextResponse, maxAgeSeconds = DEFAULT_MAX_AGE_SECONDS) {
+export function applyAdminSessionCookie(response: NextResponse, rememberMe = false) {
+  const maxAgeSeconds = getAdminSessionMaxAgeSeconds(rememberMe)
+
   response.cookies.set({
     name: ADMIN_COOKIE_NAME,
-    value: createAdminSessionCookieValue(maxAgeSeconds),
+    value: createAdminSessionCookieValue(rememberMe),
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

@@ -73,3 +73,7 @@
 * Real user accounts
 * Session handling
 * Foundation for comments, likes, and monetisation
+
+#Protected admin API routes with authenticated session checks, made the admin session persistent by default, and updated admin user detail and inventory routes to resolve users by internal id, Pi user id, or username.
+
+#Fixed the admin authentication flow by simplifying cookie-based session handling, verifying the session immediately after login, adding a Remember me option, and updating the admin page to rely on the live session instead of the broken mixed auth setup.

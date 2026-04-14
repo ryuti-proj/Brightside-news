@@ -6,6 +6,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const username = typeof body?.username === "string" ? body.username.trim() : ""
     const password = typeof body?.password === "string" ? body.password : ""
+    const rememberMe = Boolean(body?.rememberMe)
 
     const adminUsername = process.env.ADMIN_USERNAME
     const adminPassword = process.env.ADMIN_PASSWORD
@@ -20,11 +21,11 @@ export async function POST(request: NextRequest) {
 
     const response = NextResponse.json({
       success: true,
-      persistent: true,
-      maxAgeSeconds: getAdminSessionMaxAgeSeconds(),
+      persistent: rememberMe,
+      maxAgeSeconds: getAdminSessionMaxAgeSeconds(rememberMe),
     })
 
-    return applyAdminSessionCookie(response)
+    return applyAdminSessionCookie(response, rememberMe)
   } catch (error) {
     console.error("[ADMIN LOGIN] Exception:", error)
     return NextResponse.json({ error: "Login failed" }, { status: 500 })
