@@ -9,15 +9,11 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   ArrowLeft,
-  Bookmark,
-  Calendar,
   ExternalLink,
   RefreshCw,
-  UserRound,
-  Clock3,
-  Activity,
   Sparkles,
   Award,
+  Package,
 } from "lucide-react"
 import { formatPiAmount, getDonationStatusTone } from "@/lib/donation-settings"
 import { getAdminToken } from "@/lib/admin-client"
@@ -47,6 +43,32 @@ type ActivityItem = {
   timestamp: string
 }
 
+type InventoryItem = {
+  id: string
+  userId: string
+  itemType: "avatar" | "badge"
+  itemKey: string
+  sourceType: string
+  pricePi: number | null
+  equipped: boolean
+  metadata: Record<string, unknown> | null
+  createdAt: string
+  updatedAt: string
+}
+
+type InventorySummary = {
+  totals: {
+    avatarsOwned: number
+    badgesOwned: number
+    totalItems: number
+  }
+  equipped: {
+    avatar: { itemKey: string; name: string; imageUrl: string | null } | null
+    badges: { itemKey: string; name: string; icon: string | null }[]
+  }
+  items: InventoryItem[]
+}
+
 type UserDetailResponse = {
   user: UserDetail
   savedStories: SavedStory[]
@@ -61,29 +83,7 @@ type UserDetailResponse = {
     }
     items: ActivityItem[]
   }
-  inventory?: {
-    totals: {
-      avatarsOwned: number
-      badgesOwned: number
-      totalItems: number
-    }
-    equipped: {
-      avatar: { itemKey: string; name: string; imageUrl: string | null } | null
-      badges: { itemKey: string; name: string; icon: string | null }[]
-    }
-    items: Array<{
-      id: string
-      userId: string
-      itemType: "avatar" | "badge"
-      itemKey: string
-      sourceType: string
-      pricePi: number | null
-      equipped: boolean
-      metadata: Record<string, unknown> | null
-      createdAt: string
-      updatedAt: string
-    }>
-  }
+  inventory?: InventorySummary
 }
 
 function formatDate(value: string | null) {
@@ -102,6 +102,21 @@ function getUserInitials(user: UserDetail) {
   return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "PU"
 }
 
+function titleFromItemKey(itemKey: string) {
+  return itemKey
+    .replace(/^(avatar|badge)_/, "")
+    .split("_")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : ""))
+    .join(" ")
+}
+
+function groupedInventory(items: InventoryItem[]) {
+  return {
+    avatars: items.filter((item) => item.itemType === "avatar"),
+    badges: items.filter((item) => item.itemType === "badge"),
+  }
+}
+
 export default function AdminUserDetailPage() {
   const params = useParams<{ id: string }>()
   const userId = typeof params?.id === "string" ? params.id : ""
@@ -115,10 +130,8 @@ export default function AdminUserDetailPage() {
 
     setIsLoading(true)
     setError("")
-
     try {
       const token = getAdminToken()
-
       const response = await fetch(`/api/admin/users/${userId}`, {
         method: "GET",
         credentials: "include",
@@ -169,6 +182,8 @@ export default function AdminUserDetailPage() {
   }
 
   const { user, savedStories, donations, activity, inventory } = data
+  const inventoryItems = inventory?.items ?? []
+  const inventoryGroups = groupedInventory(inventoryItems)
 
   return (
     <div className="p-6 space-y-6">
@@ -197,17 +212,84 @@ export default function AdminUserDetailPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4" /> Avatar
+            <Package className="w-4 h-4" />
+            Inventory Overview
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <p className="text-sm text-gray-500 mb-2">
-            Avatar system coming next.
-          </p>
-          {inventory?.equipped.avatar ? (
-            <p className="text-sm">Equipped: {inventory.equipped.avatar.name}</p>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="rounded-md border bg-white p-4">
+              <p className="text-xs text-gray-500 mb-1">Total items</p>
+              <p className="text-xl font-semibold text-gray-900">{inventory?.totals.totalItems ?? 0}</p>
+            </div>
+            <div className="rounded-md border bg-white p-4">
+              <p className="text-xs text-gray-500 mb-1">Avatars owned</p>
+              <p className="text-xl font-semibold text-gray-900">{inventory?.totals.avatarsOwned ?? 0}</p>
+            </div>
+            <div className="rounded-md border bg-white p-4">
+              <p className="text-xs text-gray-500 mb-1">Badges owned</p>
+              <p className="text-xl font-semibold text-gray-900">{inventory?.totals.badgesOwned ?? 0}</p>
+            </div>
+          </div>
+
+          <div className="rounded-md border bg-slate-50 p-4 space-y-2">
+            <p className="text-sm font-medium text-gray-900">Equipped avatar</p>
+            {inventory?.equipped.avatar ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="secondary">Equipped</Badge>
+                <span className="text-sm text-gray-700">{inventory.equipped.avatar.name}</span>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">No avatar equipped yet.</p>
+            )}
+          </div>
+
+          <div className="rounded-md border bg-slate-50 p-4 space-y-2">
+            <p className="text-sm font-medium text-gray-900">Equipped badges</p>
+            {inventory?.equipped.badges?.length ? (
+              <div className="flex gap-2 flex-wrap">
+                {inventory.equipped.badges.map((badge) => (
+                  <Badge key={badge.itemKey} variant="secondary">
+                    {badge.name}
+                  </Badge>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">No badges equipped yet.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4" />
+            Avatars
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {inventoryGroups.avatars.length === 0 ? (
+            <p className="text-sm text-gray-500">No avatars owned yet.</p>
           ) : (
-            <p className="text-sm text-gray-500">No avatar equipped yet.</p>
+            inventoryGroups.avatars.map((item) => (
+              <div key={item.id} className="border p-3 rounded">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <p className="font-medium text-gray-900">{titleFromItemKey(item.itemKey)}</p>
+                    <p className="text-sm text-gray-500">
+                      Source: {item.sourceType} • Added: {formatDate(item.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {item.pricePi != null ? (
+                      <Badge variant="outline">{formatPiAmount(item.pricePi)}</Badge>
+                    ) : null}
+                    {item.equipped ? <Badge variant="secondary">Equipped</Badge> : null}
+                  </div>
+                </div>
+              </div>
+            ))
           )}
         </CardContent>
       </Card>
@@ -215,16 +297,33 @@ export default function AdminUserDetailPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Award className="w-4 h-4" /> Badges
+            <Award className="w-4 h-4" />
+            Badges
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <p className="text-sm text-gray-500 mb-2">
-            Badge system coming next.
-          </p>
-          <p className="text-sm">
-            Owned: {inventory?.totals.badgesOwned ?? 0}
-          </p>
+        <CardContent className="space-y-3">
+          {inventoryGroups.badges.length === 0 ? (
+            <p className="text-sm text-gray-500">No badges owned yet.</p>
+          ) : (
+            inventoryGroups.badges.map((item) => (
+              <div key={item.id} className="border p-3 rounded">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <p className="font-medium text-gray-900">{titleFromItemKey(item.itemKey)}</p>
+                    <p className="text-sm text-gray-500">
+                      Source: {item.sourceType} • Added: {formatDate(item.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {item.pricePi != null ? (
+                      <Badge variant="outline">{formatPiAmount(item.pricePi)}</Badge>
+                    ) : null}
+                    {item.equipped ? <Badge variant="secondary">Equipped</Badge> : null}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </CardContent>
       </Card>
 
